@@ -260,3 +260,5 @@ to run both an `Editor` and a `Game` by implementing the `Application` trait.
 This API is likely to change significantly over time, especially as I learn to grapple with the APIs of various crates such as
 `winit`, `wgpu` and `egui`, which will be the main foundations of the engine.
 However, I hope this has set me up for success as I move on to the next steps - actually drawing something to the screen.
+
+[View the code](https://github.com/junglie85/alpha/tree/341314716278282684e31e154baf0a1f8e1c8f04) on GitHub.
