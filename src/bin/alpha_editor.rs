@@ -1,7 +1,10 @@
 use alpha::{Editor, Engine};
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let editor = Editor::default();
-    let mut engine = Engine::default();
-    engine.run(editor);
+
+    let mut engine = Engine::init()?;
+    engine.run(editor)?;
+
+    Ok(())
 }

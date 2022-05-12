@@ -1,3 +1,5 @@
+use crate::error::Error;
+use crate::logging;
 use crate::renderer::Renderer;
 
 pub trait Application {
@@ -14,7 +16,13 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn run(&mut self, mut app: impl Application) {
+    pub fn init() -> Result<Self, Error> {
+        logging::init("info")?;
+
+        Ok(Engine::default())
+    }
+
+    pub fn run(&mut self, mut app: impl Application) -> Result<(), Error> {
         let mut renderer = Renderer::default();
 
         app.on_start();
@@ -25,5 +33,7 @@ impl Engine {
         }
 
         app.on_stop();
+
+        Ok(())
     }
 }

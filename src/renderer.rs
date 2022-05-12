@@ -1,3 +1,5 @@
+use log::info;
+
 pub struct Renderer {
     output_to_screen: bool,
 }
@@ -13,9 +15,9 @@ impl Default for Renderer {
 impl Renderer {
     pub fn render(&self, msg: &str) {
         if self.output_to_screen {
-            println!("Rendering {msg} to screen");
+            info!("Rendering {msg} to screen");
         } else {
-            println!("Rendering {msg} to buffer");
+            info!("Rendering {msg} to buffer");
         }
     }
 

@@ -1,6 +1,7 @@
 use crate::engine::Application;
 use crate::game::Game;
 use crate::renderer::Renderer;
+use log::info;
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -18,7 +19,7 @@ pub struct Editor {
 
 impl Application for Editor {
     fn on_start(&mut self) {
-        println!("EDITOR on_start");
+        info!("EDITOR on_start");
 
         let mut game = Game::default();
         game.on_start();
@@ -27,18 +28,18 @@ impl Application for Editor {
     }
 
     fn on_update(&mut self, renderer: &mut Renderer) {
-        println!("EDITOR on_update");
+        info!("EDITOR on_update");
 
         let mut game = self.game.as_ref().unwrap().borrow_mut();
 
         let play_game = match self.frames {
             1 => {
-                println!("Simulate start playing game in the editor");
+                info!("Simulate start playing game in the editor");
                 true
             }
             2 => true,
             3 => {
-                println!("Simulate stop playing game in the editor");
+                info!("Simulate stop playing game in the editor");
                 false
             }
             _ => false,
@@ -58,6 +59,6 @@ impl Application for Editor {
         let mut game = self.game.as_ref().unwrap().borrow_mut();
         game.on_stop();
 
-        println!("EDITOR on_stop");
+        info!("EDITOR on_stop");
     }
 }

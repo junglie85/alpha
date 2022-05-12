@@ -4,5 +4,7 @@ pub use game::Game;
 
 mod editor;
 mod engine;
+mod error;
 mod game;
+mod logging;
 mod renderer;
