@@ -7,4 +7,5 @@ mod engine;
 mod error;
 mod game;
 mod logging;
+mod platform;
 mod renderer;
