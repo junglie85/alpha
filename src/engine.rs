@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::renderer::Renderer;
-use crate::{logging, platform};
+use crate::{logging, platform, renderer};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Window;
 use winit_input_helper::WinitInputHelper;
@@ -25,7 +25,7 @@ impl Engine {
         logging::init("info")?;
         let (event_loop, window, input) = platform::init()?;
 
-        let renderer = Renderer::default();
+        let renderer = renderer::init(&window)?;
 
         let engine = Engine {
             event_loop: Some(event_loop),

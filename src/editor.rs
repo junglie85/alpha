@@ -50,7 +50,7 @@ impl Application for Editor {
         game.on_update(renderer);
         renderer.render_to_screen(true);
 
-        renderer.render("EDITOR");
+        // renderer.render("EDITOR");
 
         self.frames += 1;
     }

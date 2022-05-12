@@ -5,8 +5,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+bytemuck = { version = "1.4", features = ["derive"] }
 flexi_logger = "0.22"
 log = "0.4"
+pollster = "0.2"
 thiserror = "1.0"
+wgpu = "0.12"
 winit = "0.26"
 winit_input_helper = "0.12"

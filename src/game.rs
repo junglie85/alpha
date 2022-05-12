@@ -16,7 +16,8 @@ impl Application for Game {
     fn on_update(&mut self, renderer: &mut Renderer) {
         let paused_or_running = if self.paused { "paused" } else { "running" };
         info!("GAME on_update - {}", paused_or_running);
-        renderer.render("GAME");
+
+        renderer.draw_quad();
     }
 
     fn on_stop(&mut self) {
