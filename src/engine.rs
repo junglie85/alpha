@@ -3,7 +3,7 @@ use crate::renderer::Renderer;
 use crate::{logging, platform, renderer};
 use std::sync::Arc;
 use wgpu::{Device, TextureFormat};
-use winit::event::Event;
+use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Window;
 use winit_input_helper::WinitInputHelper;
@@ -51,7 +51,16 @@ impl Engine {
         app.on_start(&window, &renderer.device, renderer.surface_config.format);
 
         event_loop.run(move |event, _, control_flow| {
+            if let Event::WindowEvent {
+                event: WindowEvent::Resized(size),
+                ..
+            } = event
+            {
+                renderer.resize(size.width, size.height, window.scale_factor());
+            }
+
             app.on_event(&event);
+
             let processed_all_events = input.update(&event);
 
             if processed_all_events {
