@@ -1,4 +1,5 @@
-use crate::engine::Application;
+use crate::engine::{Application, CreateApplication};
+use crate::error::Error;
 use crate::game::Game;
 use crate::renderer::Renderer;
 use egui::FontDefinitions;
@@ -18,7 +19,7 @@ pub trait Pause {
 }
 
 pub struct Editor<'a> {
-    game: Option<Box<dyn EditorApplication>>,
+    game: Option<Game>,
     frames: usize,
 
     egui_platform: Option<Platform>,
@@ -51,10 +52,12 @@ impl<'a> Default for Editor<'a> {
     }
 }
 
-impl<'a> Application for Editor<'a> {
-    fn on_start(&mut self, window: &Window, device: &Arc<Device>, surface_format: TextureFormat) {
+impl<'a> CreateApplication for Editor<'a> {
+    type App = Self;
+
+    fn create(window: &Window, renderer: &Renderer) -> Result<Self::App, Error> {
         let size = window.inner_size();
-        self.egui_platform = Some(egui_winit_platform::Platform::new(
+        let egui_platform = Some(egui_winit_platform::Platform::new(
             egui_winit_platform::PlatformDescriptor {
                 physical_width: size.width as u32,
                 physical_height: size.height as u32,
@@ -64,19 +67,16 @@ impl<'a> Application for Editor<'a> {
             },
         ));
 
-        self.egui_render_pass = Some(egui_wgpu_backend::RenderPass::new(
-            device,
-            surface_format,
+        let egui_render_pass = Some(egui_wgpu_backend::RenderPass::new(
+            &renderer.device,
+            renderer.surface_config.format,
             1,
         ));
 
-        self.start_time = Instant::now();
+        let start_time = Instant::now();
 
         ///// GAME ////////////////////////////
-        let mut game = Game::default();
-        game.on_start(window, device, surface_format);
-        game.pause(true);
-        self.game = Some(Box::new(game));
+        let game = Game::create(window, renderer)?;
 
         ////// Texture to render GAME into ////////
         let game_scene_texture_size = 256u32;
@@ -96,7 +96,7 @@ impl<'a> Application for Editor<'a> {
                 | wgpu::TextureUsages::TEXTURE_BINDING,
             label: None,
         };
-        let game_scene_texture = device.create_texture(&game_scene_texture_desc);
+        let game_scene_texture = renderer.device.create_texture(&game_scene_texture_desc);
         let game_scene_texture_view = game_scene_texture.create_view(&Default::default());
 
         let game_scene_u32_size = std::mem::size_of::<u32>() as u32;
@@ -110,14 +110,34 @@ impl<'a> Application for Editor<'a> {
             label: None,
             mapped_at_creation: false,
         };
-        let game_scene_output_buffer = device.create_buffer(&game_scene_output_buffer_desc);
+        let game_scene_output_buffer = renderer
+            .device
+            .create_buffer(&game_scene_output_buffer_desc);
 
-        self.game_scene_texture_size = Some(game_scene_texture_size);
-        self.game_scene_texture_desc = Some(game_scene_texture_desc);
-        self.game_scene_texture = Some(game_scene_texture);
-        self.game_scene_texture_view = Some(game_scene_texture_view);
-        self.game_scene_u32_size = Some(game_scene_u32_size);
-        self.game_scene_output_buffer = Some(game_scene_output_buffer);
+        let editor = Editor {
+            game: Some(game),
+            frames: 0,
+            egui_platform,
+            egui_render_pass,
+            start_time,
+            game_scene_texture_size: Some(game_scene_texture_size),
+            game_scene_texture_desc: Some(game_scene_texture_desc),
+            game_scene_texture: Some(game_scene_texture),
+            game_scene_texture_view: Some(game_scene_texture_view),
+            game_scene_output_buffer: Some(game_scene_output_buffer),
+            game_scene_u32_size: Some(game_scene_u32_size),
+        };
+
+        Ok(editor)
+    }
+}
+
+impl<'a> Application for Editor<'a> {
+    fn on_start(&mut self) {
+        if let Some(game) = &mut self.game {
+            game.on_start();
+            game.pause(true);
+        }
     }
 
     fn on_event(&mut self, event: &Event<()>) {

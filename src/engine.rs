@@ -8,8 +8,15 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Window;
 use winit_input_helper::WinitInputHelper;
 
+pub trait CreateApplication {
+    type App: Application;
+
+    fn create(window: &Window, renderer: &Renderer) -> Result<Self::App, Error>;
+}
+
 pub trait Application {
-    fn on_start(&mut self, window: &Window, device: &Arc<Device>, surface_format: TextureFormat);
+    // fn on_start(&mut self, window: &Window, device: &Arc<Device>, surface_format: TextureFormat);
+    fn on_start(&mut self);
 
     fn on_event(&mut self, event: &Event<()>);
 
@@ -18,21 +25,31 @@ pub trait Application {
     fn on_stop(&mut self);
 }
 
-pub struct Engine {
+pub struct Engine<App>
+where
+    App: CreateApplication + 'static,
+{
+    application: Option<App::App>,
     event_loop: Option<EventLoop<()>>,
     input: Option<WinitInputHelper>,
     renderer: Option<Renderer>,
     window: Option<Window>,
 }
 
-impl Engine {
+impl<App> Engine<App>
+where
+    App: CreateApplication + 'static,
+{
     pub fn init() -> Result<Self, Error> {
         logging::init("info")?;
         let (event_loop, window, input) = platform::init()?;
 
         let renderer = renderer::init(&window)?;
 
+        let application = App::create(&window, &renderer)?;
+
         let engine = Engine {
+            application: Some(application),
             event_loop: Some(event_loop),
             input: Some(input),
             renderer: Some(renderer),
@@ -42,13 +59,14 @@ impl Engine {
         Ok(engine)
     }
 
-    pub fn run(&mut self, mut app: impl Application + 'static) -> Result<(), Error> {
+    pub fn run(&mut self) -> Result<(), Error> {
+        let mut app = self.application.take().unwrap();
         let event_loop = self.event_loop.take().unwrap();
         let mut input = self.input.take().unwrap();
         let mut renderer = self.renderer.take().unwrap();
         let window = self.window.take().unwrap();
 
-        app.on_start(&window, &renderer.device, renderer.surface_config.format);
+        app.on_start();
 
         event_loop.run(move |event, _, control_flow| {
             if let Event::WindowEvent {

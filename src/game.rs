@@ -1,5 +1,6 @@
 use crate::editor::{EditorApplication, Pause};
-use crate::engine::Application;
+use crate::engine::{Application, CreateApplication};
+use crate::error::Error;
 use crate::renderer::Renderer;
 use log::info;
 use std::sync::Arc;
@@ -12,13 +13,16 @@ pub struct Game {
     paused: bool,
 }
 
+impl CreateApplication for Game {
+    type App = Self;
+
+    fn create(_window: &Window, _renderer: &Renderer) -> Result<Self::App, Error> {
+        Ok(Game::default())
+    }
+}
+
 impl Application for Game {
-    fn on_start(
-        &mut self,
-        _window: &Window,
-        _device: &Arc<Device>,
-        _surface_format: TextureFormat,
-    ) {
+    fn on_start(&mut self) {
         info!("GAME on_start");
     }
 
@@ -42,4 +46,5 @@ impl Pause for Game {
     }
 }
 
+// TODO: Just use the Game struct directly?
 impl EditorApplication for Game {}
