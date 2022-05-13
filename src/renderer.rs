@@ -5,11 +5,10 @@ use std::sync::Arc;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     Adapter, BlendState, Buffer, BufferAddress, BufferUsages, ColorTargetState, ColorWrites,
-    CommandBuffer, CommandEncoder, Device, Face, FragmentState, FrontFace, Instance,
-    MultisampleState, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology,
-    Queue, RenderPass, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor,
-    ShaderSource, Surface, SurfaceConfiguration, SurfaceTexture, TextureView, VertexAttribute,
-    VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
+    Device, Face, FragmentState, FrontFace, Instance, MultisampleState, PipelineLayoutDescriptor,
+    PolygonMode, PrimitiveState, PrimitiveTopology, Queue, RenderPipeline,
+    RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, Surface, SurfaceConfiguration,
+    TextureView, VertexAttribute, VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
 };
 use winit::window::Window;
 
@@ -21,8 +20,8 @@ pub fn init(window: &Window) -> Result<Renderer, Error> {
 }
 
 pub struct Renderer {
-    instance: Instance,
-    adapter: Adapter,
+    _instance: Instance,
+    _adapter: Adapter,
     pub surface: Arc<Surface>,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
@@ -30,7 +29,7 @@ pub struct Renderer {
     pub width: u32,
     pub height: u32,
     pub scale_factor: f64,
-    output_to_screen: bool,
+    pub output_texture: Option<TextureView>,
 
     quad: Quad,
 }
@@ -67,6 +66,7 @@ impl Renderer {
             .await
             .unwrap();
 
+        // if let surface_
         let surface_format = surface.get_preferred_format(&adapter).unwrap();
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -80,8 +80,8 @@ impl Renderer {
         let quad = Quad::init(&device, &surface_config);
 
         Self {
-            instance,
-            adapter,
+            _instance: instance,
+            _adapter: adapter,
             surface: Arc::new(surface),
             device: Arc::new(device),
             queue: Arc::new(queue),
@@ -89,7 +89,7 @@ impl Renderer {
             width,
             height,
             scale_factor,
-            output_to_screen: true,
+            output_texture: None,
 
             quad,
         }
@@ -107,13 +107,19 @@ impl Renderer {
     }
 
     pub fn draw_quad(&mut self) {
-        let output = self
-            .surface
-            .get_current_texture()
-            .expect("should have a surface");
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        let (output, view) = if let Some(view) = self.output_texture.take() {
+            (None, view)
+        } else {
+            let output = self
+                .surface
+                .get_current_texture()
+                .expect("should have a surface");
+            let view = output
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            (Some(output), view)
+        };
+
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -153,11 +159,16 @@ impl Renderer {
 
         let command_buffers = vec![encoder.finish()];
         self.queue.submit(command_buffers);
-        output.present();
+
+        if let Some(output) = output {
+            output.present();
+        } else {
+            self.output_texture = Some(view);
+        }
     }
 
-    pub fn render_to_screen(&mut self, output_to_screen: bool) {
-        self.output_to_screen = output_to_screen
+    pub fn render_to_texture(&mut self, texture: Option<TextureView>) {
+        self.output_texture = texture;
     }
 }
 

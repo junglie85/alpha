@@ -2,6 +2,10 @@ use crate::editor::{EditorApplication, Pause};
 use crate::engine::Application;
 use crate::renderer::Renderer;
 use log::info;
+use std::sync::Arc;
+use wgpu::{Device, TextureFormat};
+use winit::event::Event;
+use winit::window::Window;
 
 #[derive(Default)]
 pub struct Game {
@@ -9,11 +13,18 @@ pub struct Game {
 }
 
 impl Application for Game {
-    fn on_start(&mut self) {
+    fn on_start(
+        &mut self,
+        _window: &Window,
+        _device: &Arc<Device>,
+        _surface_format: TextureFormat,
+    ) {
         info!("GAME on_start");
     }
 
-    fn on_update(&mut self, renderer: &mut Renderer) {
+    fn on_event(&mut self, _event: &Event<()>) {}
+
+    fn on_update(&mut self, _window: &Window, renderer: &mut Renderer) {
         let paused_or_running = if self.paused { "paused" } else { "running" };
         info!("GAME on_update - {}", paused_or_running);
 

@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 bytemuck = { version = "1.4", features = ["derive"] }
+egui = "0.16"
+egui_wgpu_backend = "0.16"
+egui_winit_platform = "0.13"
 flexi_logger = "0.22"
 log = "0.4"
 pollster = "0.2"
