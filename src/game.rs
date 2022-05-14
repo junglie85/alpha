@@ -9,7 +9,7 @@ use winit::window::Window;
 #[derive(Default)]
 pub struct Game {
     paused: bool,
-    rects: Vec<Rect>,
+    pub rects: Vec<Rect>,
 }
 
 impl CreateApplication for Game {

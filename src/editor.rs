@@ -142,6 +142,13 @@ impl Application for Editor {
                 ui.image(game_scene_texture_id, egui::Vec2::new(640.0, 480.0));
             });
 
+        egui::Window::new("Choose color")
+            .resizable(false)
+            .show(&egui_ctx, |ui| {
+                ui.color_edit_button_rgba_unmultiplied(&mut game.rects[0].color)
+                    .changed();
+            });
+
         let (_, paint_commands) = self.egui_platform.end_frame(Some(window));
         let paint_jobs = egui_ctx.tessellate(paint_commands);
         let font_image = egui_ctx.font_image();
