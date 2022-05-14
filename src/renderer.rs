@@ -1,6 +1,7 @@
 use crate::error::Error;
 use bytemuck::{cast_slice, Pod, Zeroable};
 use log::info;
+use std::cell::RefCell;
 use std::sync::Arc;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -29,7 +30,7 @@ pub struct Renderer {
     pub width: u32,
     pub height: u32,
     pub scale_factor: f64,
-    pub output_texture: Option<TextureView>,
+    pub output_texture: Option<Arc<RefCell<TextureView>>>,
 
     quad: Quad,
 }
@@ -117,7 +118,7 @@ impl Renderer {
             let view = output
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
-            (Some(output), view)
+            (Some(output), Arc::new(RefCell::new(view)))
         };
 
         let mut encoder = self
@@ -127,12 +128,13 @@ impl Renderer {
             });
 
         {
+            let view = &view.as_ref().borrow();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[
                     // This is what [[location(0)]] in the fragment shader targets
                     wgpu::RenderPassColorAttachment {
-                        view: &view,
+                        view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -167,7 +169,7 @@ impl Renderer {
         }
     }
 
-    pub fn render_to_texture(&mut self, texture: Option<TextureView>) {
+    pub fn render_to_texture(&mut self, texture: Option<Arc<RefCell<TextureView>>>) {
         self.output_texture = texture;
     }
 }

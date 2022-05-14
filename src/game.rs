@@ -1,10 +1,8 @@
-use crate::editor::{EditorApplication, Pause};
+use crate::editor::Pause;
 use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
 use crate::renderer::Renderer;
 use log::info;
-use std::sync::Arc;
-use wgpu::{Device, TextureFormat};
 use winit::event::Event;
 use winit::window::Window;
 
@@ -28,11 +26,13 @@ impl Application for Game {
 
     fn on_event(&mut self, _event: &Event<()>) {}
 
-    fn on_update(&mut self, _window: &Window, renderer: &mut Renderer) {
+    fn on_update(&mut self, _window: &Window, renderer: &mut Renderer) -> Result<(), Error> {
         let paused_or_running = if self.paused { "paused" } else { "running" };
         info!("GAME on_update - {}", paused_or_running);
 
         renderer.draw_quad();
+
+        Ok(())
     }
 
     fn on_stop(&mut self) {
@@ -45,6 +45,3 @@ impl Pause for Game {
         self.paused = paused;
     }
 }
-
-// TODO: Just use the Game struct directly?
-impl EditorApplication for Game {}

@@ -1,8 +1,6 @@
 use crate::error::Error;
 use crate::renderer::Renderer;
 use crate::{logging, platform, renderer};
-use std::sync::Arc;
-use wgpu::{Device, TextureFormat};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Window;
@@ -15,12 +13,11 @@ pub trait CreateApplication {
 }
 
 pub trait Application {
-    // fn on_start(&mut self, window: &Window, device: &Arc<Device>, surface_format: TextureFormat);
     fn on_start(&mut self);
 
     fn on_event(&mut self, event: &Event<()>);
 
-    fn on_update(&mut self, window: &Window, renderer: &mut Renderer);
+    fn on_update(&mut self, window: &Window, renderer: &mut Renderer) -> Result<(), Error>;
 
     fn on_stop(&mut self);
 }
@@ -88,7 +85,8 @@ where
                     return;
                 }
 
-                app.on_update(&window, &mut renderer);
+                app.on_update(&window, &mut renderer)
+                    .expect("Handle error - exit or recover?"); // TODO
             }
 
             *control_flow = ControlFlow::Poll;
