@@ -1,7 +1,7 @@
 use crate::editor::Pause;
 use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
-use crate::renderer::Renderer;
+use crate::renderer::{Rect, Renderer};
 use log::info;
 use winit::event::Event;
 use winit::window::Window;
@@ -9,6 +9,7 @@ use winit::window::Window;
 #[derive(Default)]
 pub struct Game {
     paused: bool,
+    rects: Vec<Rect>,
 }
 
 impl CreateApplication for Game {
@@ -21,7 +22,8 @@ impl CreateApplication for Game {
 
 impl Application for Game {
     fn on_start(&mut self) {
-        info!("GAME on_start");
+        let rect = Rect::new([0.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
+        self.rects.push(rect);
     }
 
     fn on_event(&mut self, _event: &Event<()>) {}
@@ -30,7 +32,7 @@ impl Application for Game {
         let paused_or_running = if self.paused { "paused" } else { "running" };
         info!("GAME on_update - {}", paused_or_running);
 
-        renderer.draw_quad();
+        renderer.draw_rect(&self.rects[0]);
 
         Ok(())
     }
