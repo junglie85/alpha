@@ -13,7 +13,7 @@ pub trait CreateApplication {
 }
 
 pub trait Application {
-    fn on_start(&mut self);
+    fn on_start(&mut self, config_filename: Option<&str>);
 
     fn on_event(&mut self, event: &Event<()>);
 
@@ -63,7 +63,7 @@ where
         let mut renderer = self.renderer.take().unwrap();
         let window = self.window.take().unwrap();
 
-        app.on_start();
+        app.on_start(None);
 
         event_loop.run(move |event, _, control_flow| {
             if let Event::WindowEvent {

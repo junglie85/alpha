@@ -3,6 +3,8 @@ use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
 use crate::renderer::{Rect, Renderer};
 use log::info;
+use std::str::FromStr;
+use std::{fs, path};
 use winit::event::Event;
 use winit::window::Window;
 
@@ -21,9 +23,26 @@ impl CreateApplication for Game {
 }
 
 impl Application for Game {
-    fn on_start(&mut self) {
-        let rect = Rect::new([0.0, 0.0], [1.0, 0.0, 0.0, 1.0]);
-        self.rects.push(rect);
+    fn on_start(&mut self, config_filename: Option<&str>) {
+        let filename = match config_filename {
+            Some(filename) => filename,
+            None => "alpha_game.ini",
+        };
+
+        let path = path::Path::new(filename);
+        let file = fs::read_to_string(path);
+
+        if let Ok(config) = file {
+            let colors: Vec<&str> = config.split_whitespace().collect();
+            let r = f32::from_str(colors[0]).unwrap();
+            let g = f32::from_str(colors[1]).unwrap();
+            let b = f32::from_str(colors[2]).unwrap();
+            let a = f32::from_str(colors[3]).unwrap();
+            let color = [r, g, b, a];
+
+            let rect = Rect::new([0.0, 0.0], color);
+            self.rects.push(rect);
+        }
     }
 
     fn on_event(&mut self, _event: &Event<()>) {}
