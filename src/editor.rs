@@ -9,6 +9,7 @@ use log::info;
 use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Instant;
+use std::{fs, path};
 use winit::event::Event;
 use winit::window::Window;
 
@@ -16,9 +17,19 @@ pub trait Pause {
     fn pause(&mut self, paused: bool);
 }
 
+#[derive(Default)]
+struct EditorState {
+    pub editor_title: String,
+    pub changed_since_last_save: bool,
+    pub save_requested: bool,
+    pub build_requested: bool,
+}
+
 pub struct Editor {
     game: Option<Game>,
     frames: usize,
+
+    state: EditorState,
 
     egui_start_time: Instant,
     egui_platform: Platform,
@@ -50,6 +61,9 @@ impl CreateApplication for Editor {
         ///// GAME ////////////////////////////
         let game = Game::create(window, renderer)?;
 
+        let mut state = EditorState::default();
+        state.editor_title = String::from("Alpha Editor");
+
         ////// Texture to render GAME into ////////
         let game_scene_texture_size = 256u32;
 
@@ -76,6 +90,7 @@ impl CreateApplication for Editor {
         let editor = Editor {
             game: Some(game),
             frames: 0,
+            state,
             egui_platform,
             egui_render_pass,
             egui_start_time: start_time,
@@ -88,9 +103,9 @@ impl CreateApplication for Editor {
 }
 
 impl Application for Editor {
-    fn on_start(&mut self) {
+    fn on_start(&mut self, _config_filename: Option<&str>) {
         if let Some(game) = &mut self.game {
-            game.on_start();
+            game.on_start(Some("alpha_game.alpha"));
             game.pause(true);
         }
     }
@@ -136,11 +151,40 @@ impl Application for Editor {
         self.egui_platform.begin_frame();
 
         let egui_ctx = self.egui_platform.context();
-        egui::Window::new("Game Scene")
-            .resizable(true)
-            .show(&egui_ctx, |ui| {
-                ui.image(game_scene_texture_id, egui::Vec2::new(640.0, 480.0));
+
+        egui::TopBottomPanel::top("toolbar").show(&egui_ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                let save = ui.button("💾 Save").clicked();
+                if save {
+                    self.state.save_requested = true;
+                }
+
+                let build = ui.button("🛠 Build").clicked();
+                if build {
+                    self.state.build_requested = true;
+                }
             });
+        });
+
+        egui::SidePanel::right("right pane").show(&egui_ctx, |ui| {
+            if ui
+                .color_edit_button_rgba_unmultiplied(&mut game.rects[0].color)
+                .changed()
+            {
+                self.state.changed_since_last_save = true;
+            }
+        });
+
+        egui::CentralPanel::default().show(&egui_ctx, |ui| {
+            let size = ui.available_size_before_wrap();
+            ui.image(game_scene_texture_id, size);
+        });
+
+        if self.state.changed_since_last_save {
+            window.set_title(&format!("{}*", self.state.editor_title));
+        } else {
+            window.set_title(&self.state.editor_title);
+        }
 
         let (_, paint_commands) = self.egui_platform.end_frame(Some(window));
         let paint_jobs = egui_ctx.tessellate(paint_commands);
@@ -193,6 +237,28 @@ impl Application for Editor {
         output.present();
 
         self.frames += 1;
+
+        if self.state.save_requested {
+            let r = game.rects[0].color[0];
+            let g = game.rects[0].color[1];
+            let b = game.rects[0].color[2];
+            let a = game.rects[0].color[3];
+            let color = format!("{} {} {} {}", r, g, b, a);
+
+            let path = path::Path::new("alpha_game.alpha");
+            fs::write(path, color).expect("Unable to write file alpha_game.alpha");
+
+            self.state.save_requested = false;
+            self.state.changed_since_last_save = false;
+        }
+
+        if self.state.build_requested {
+            self.state.build_requested = false;
+            let copy_src = path::Path::new("alpha_game.alpha");
+            let copy_dst = path::Path::new("alpha_game.ini");
+            fs::copy(copy_src, copy_dst)
+                .expect("Unable to copy alpha_game.alpha to alpha_game.ini");
+        }
 
         Ok(())
     }
