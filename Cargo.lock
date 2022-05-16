@@ -48,6 +48,7 @@ dependencies = [
  "egui_wgpu_backend",
  "egui_winit_platform",
  "flexi_logger",
+ "glam",
  "log",
  "pollster",
  "thiserror",
@@ -512,6 +513,12 @@ dependencies = [
  "libc",
  "wasi 0.10.2+wasi-snapshot-preview1",
 ]
+
+[[package]]
+name = "glam"
+version = "0.20.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f43e957e744be03f5801a55472f593d43fabdebf25a4585db250f04d86b1675f"
 
 [[package]]
 name = "glob"

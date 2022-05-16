@@ -1,16 +1,18 @@
 use crate::error::Error;
 use bytemuck::{cast_slice, Pod, Zeroable};
+use glam::Mat4;
 use log::info;
 use std::cell::RefCell;
 use std::sync::Arc;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    Adapter, BlendState, Buffer, BufferAddress, BufferDescriptor, BufferUsages, ColorTargetState,
-    ColorWrites, Device, Face, FragmentState, FrontFace, Instance, MultisampleState,
-    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue,
-    RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, Surface,
-    SurfaceConfiguration, TextureView, VertexAttribute, VertexBufferLayout, VertexFormat,
-    VertexState, VertexStepMode,
+    Adapter, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingType, BlendState, Buffer, BufferAddress, BufferBindingType,
+    BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, Device, Face, FragmentState,
+    FrontFace, Instance, MultisampleState, PipelineLayoutDescriptor, PolygonMode, PrimitiveState,
+    PrimitiveTopology, Queue, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages, Surface, SurfaceConfiguration, TextureView, VertexAttribute,
+    VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
 };
 use winit::window::Window;
 
@@ -139,6 +141,12 @@ impl Renderer {
             usage: BufferUsages::COPY_SRC,
         });
 
+        let model_uniform_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Model Uniform Buffer"),
+            contents: cast_slice(rect.scale_rotation_translation().as_ref()),
+            usage: BufferUsages::COPY_SRC,
+        });
+
         encoder.copy_buffer_to_buffer(
             &vertex_buffer,
             0,
@@ -153,6 +161,14 @@ impl Renderer {
             &self.rect_pipeline.index_buffer,
             0,
             (std::mem::size_of::<u16>() * indices.len()) as BufferAddress,
+        );
+
+        encoder.copy_buffer_to_buffer(
+            &model_uniform_buffer,
+            0,
+            &self.rect_pipeline.model_uniform_buffer,
+            0,
+            std::mem::size_of::<Mat4>() as BufferAddress,
         );
 
         let (output, view) = if let Some(view) = self.output_texture.take() {
@@ -192,6 +208,7 @@ impl Renderer {
             });
 
             render_pass.set_pipeline(&self.rect_pipeline.render_pipeline);
+            render_pass.set_bind_group(0, &self.rect_pipeline.model_uniform_buffer_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.rect_pipeline.vertex_buffer.slice(..));
             render_pass.set_index_buffer(
                 self.rect_pipeline.index_buffer.slice(..),
@@ -248,24 +265,76 @@ impl Vertex {
 }
 
 pub struct RectPipeline {
-    pub render_pipeline: RenderPipeline,
     pub vertex_buffer: Buffer,
     pub index_buffer: Buffer,
     pub index_buffer_format: wgpu::IndexFormat,
+    pub model_uniform_buffer: Buffer,
+    pub model_uniform_buffer_bind_group: BindGroup,
+    pub render_pipeline: RenderPipeline,
 }
 
 impl RectPipeline {
     const INITIAL_RECT_COUNT: usize = 1;
 
     pub fn init(device: &Device, surface_config: &SurfaceConfiguration) -> Self {
+        // TODO: Move into shader manager?
         let shader = device.create_shader_module(&ShaderModuleDescriptor {
             label: Some("Shader"),
             source: ShaderSource::Wgsl(include_str!("../resources/shaders/rect.wgsl").into()),
         });
 
+        let vertex_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Vertex Buffer"),
+            size: (std::mem::size_of::<Vertex>() * 4 * Self::INITIAL_RECT_COUNT as usize)
+                as BufferAddress,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let index_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Index Buffer"),
+            size: (std::mem::size_of::<u16>() * 6 * Self::INITIAL_RECT_COUNT as usize)
+                as BufferAddress,
+            usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let index_buffer_format = wgpu::IndexFormat::Uint16;
+
+        let model_uniform_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Model Uniform Buffer"),
+            size: std::mem::size_of::<[[f32; 4]; 4]>() as BufferAddress,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let model_uniform_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("Model bind group layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let model_uniform_buffer_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("Model bind group"),
+            layout: &model_uniform_bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: model_uniform_buffer.as_entire_binding(),
+            }],
+        });
+
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&model_uniform_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -307,41 +376,45 @@ impl RectPipeline {
             multiview: None,
         });
 
-        let vertex_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Vertex Buffer"),
-            size: (std::mem::size_of::<Vertex>() * 4 * Self::INITIAL_RECT_COUNT as usize)
-                as BufferAddress,
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let index_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Index Buffer"),
-            size: (std::mem::size_of::<u16>() * 6 * Self::INITIAL_RECT_COUNT as usize)
-                as BufferAddress,
-            usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let index_buffer_format = wgpu::IndexFormat::Uint16;
-
         RectPipeline {
-            render_pipeline,
             vertex_buffer,
             index_buffer,
             index_buffer_format,
+            model_uniform_buffer,
+            model_uniform_buffer_bind_group,
+            render_pipeline,
         }
     }
 }
 
 // TODO: This needs to have coords and size specified in pixels/world coords.
+// TODO: Split into relevant components.
 pub struct Rect {
     pub position: [f32; 2],
     pub color: [f32; 4],
+
+    pub scale: [f32; 2],
+    pub rotation_degrees: f32,
 }
 
 impl Rect {
     pub fn new(position: [f32; 2], color: [f32; 4]) -> Self {
-        Self { position, color }
+        let scale = [1.0, 1.0];
+        let rotation_degrees = 0.0;
+
+        Self {
+            position,
+            color,
+            scale,
+            rotation_degrees,
+        }
+    }
+
+    pub fn scale_rotation_translation(&self) -> Mat4 {
+        glam::Mat4::from_scale_rotation_translation(
+            glam::Vec3::new(self.scale[0], self.scale[1], 1.0),
+            glam::Quat::from_rotation_z(self.rotation_degrees),
+            glam::Vec3::new(self.position[0], self.position[1], 0.0),
+        )
     }
 }
