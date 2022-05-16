@@ -1,6 +1,6 @@
 use crate::error::Error;
 use bytemuck::{cast_slice, Pod, Zeroable};
-use glam::Mat4;
+use glam::{Mat4, Vec3, Vec4};
 use log::info;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -117,10 +117,10 @@ impl Renderer {
             });
 
         let vertices = [
-            Vertex::new([0.5, 0.5], rect.color),
-            Vertex::new([-0.5, 0.5], rect.color),
-            Vertex::new([-0.5, -0.5], rect.color),
-            Vertex::new([0.5, -0.5], rect.color),
+            Vertex::new([1.0, 1.0], rect.color),
+            Vertex::new([0.0, 1.0], rect.color),
+            Vertex::new([0.0, 0.0], rect.color),
+            Vertex::new([1.0, 0.0], rect.color),
         ];
 
         #[rustfmt::skip]
@@ -147,6 +147,28 @@ impl Renderer {
             usage: BufferUsages::COPY_SRC,
         });
 
+        let view_ = glam::Mat4::look_at_lh(
+            glam::Vec3::new(-200.0, -200.0, -1.0),
+            glam::Vec3::new(-200.0, -200.0, 0.0),
+            glam::Vec3::Y,
+        );
+        // TODO: Set where the origin is - might want center of screen, not bottom left.
+        // TODO: Set Pixels-Per-Unit and scale things accordingly.
+        let projection_ =
+            glam::Mat4::orthographic_lh(0.0, self.width as f32, 0.0, self.height as f32, -1.0, 1.0);
+        let vp = ViewProjectionUniform {
+            view: view_.to_cols_array_2d(),
+            // view: Mat4::IDENTITY.to_cols_array_2d(),
+            projection: projection_.to_cols_array_2d(),
+        };
+
+        let view_projection_uniform_buffer =
+            self.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("View Projection Uniform Buffer"),
+                contents: cast_slice(&[vp]),
+                usage: BufferUsages::COPY_SRC,
+            });
+
         encoder.copy_buffer_to_buffer(
             &vertex_buffer,
             0,
@@ -169,6 +191,14 @@ impl Renderer {
             &self.rect_pipeline.model_uniform_buffer,
             0,
             std::mem::size_of::<Mat4>() as BufferAddress,
+        );
+
+        encoder.copy_buffer_to_buffer(
+            &view_projection_uniform_buffer,
+            0,
+            &self.rect_pipeline.view_projection_uniform_buffer,
+            0,
+            std::mem::size_of::<ViewProjectionUniform>() as BufferAddress,
         );
 
         let (output, view) = if let Some(view) = self.output_texture.take() {
@@ -209,6 +239,11 @@ impl Renderer {
 
             render_pass.set_pipeline(&self.rect_pipeline.render_pipeline);
             render_pass.set_bind_group(0, &self.rect_pipeline.model_uniform_buffer_bind_group, &[]);
+            render_pass.set_bind_group(
+                1,
+                &self.rect_pipeline.view_projection_uniform_buffer_bind_group,
+                &[],
+            );
             render_pass.set_vertex_buffer(0, self.rect_pipeline.vertex_buffer.slice(..));
             render_pass.set_index_buffer(
                 self.rect_pipeline.index_buffer.slice(..),
@@ -264,12 +299,21 @@ impl Vertex {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct ViewProjectionUniform {
+    view: [[f32; 4]; 4],
+    projection: [[f32; 4]; 4],
+}
+
 pub struct RectPipeline {
     pub vertex_buffer: Buffer,
     pub index_buffer: Buffer,
     pub index_buffer_format: wgpu::IndexFormat,
     pub model_uniform_buffer: Buffer,
     pub model_uniform_buffer_bind_group: BindGroup,
+    pub view_projection_uniform_buffer: Buffer,
+    pub view_projection_uniform_buffer_bind_group: BindGroup,
     pub render_pipeline: RenderPipeline,
 }
 
@@ -308,6 +352,13 @@ impl RectPipeline {
             mapped_at_creation: false,
         });
 
+        let view_projection_uniform_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("View Projection Uniform Buffer"),
+            size: std::mem::size_of::<ViewProjectionUniform>() as BufferAddress,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
         let model_uniform_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Model bind group layout"),
@@ -332,9 +383,37 @@ impl RectPipeline {
             }],
         });
 
+        let view_projection_uniform_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("View Projection bind group layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let view_projection_uniform_buffer_bind_group =
+            device.create_bind_group(&BindGroupDescriptor {
+                label: Some("View Projection bind group"),
+                layout: &view_projection_uniform_bind_group_layout,
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: view_projection_uniform_buffer.as_entire_binding(),
+                }],
+            });
+
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&model_uniform_bind_group_layout],
+            bind_group_layouts: &[
+                &model_uniform_bind_group_layout,
+                &view_projection_uniform_bind_group_layout,
+            ],
             push_constant_ranges: &[],
         });
 
@@ -382,6 +461,8 @@ impl RectPipeline {
             index_buffer_format,
             model_uniform_buffer,
             model_uniform_buffer_bind_group,
+            view_projection_uniform_buffer,
+            view_projection_uniform_buffer_bind_group,
             render_pipeline,
         }
     }
@@ -389,6 +470,7 @@ impl RectPipeline {
 
 // TODO: This needs to have coords and size specified in pixels/world coords.
 // TODO: Split into relevant components.
+// TODO: Set origin and ensure TRS happens in relation to it.
 pub struct Rect {
     pub position: [f32; 2],
     pub color: [f32; 4],
@@ -411,10 +493,14 @@ impl Rect {
     }
 
     pub fn scale_rotation_translation(&self) -> Mat4 {
-        glam::Mat4::from_scale_rotation_translation(
-            glam::Vec3::new(self.scale[0], self.scale[1], 1.0),
-            glam::Quat::from_rotation_z(self.rotation_degrees),
-            glam::Vec3::new(self.position[0], self.position[1], 0.0),
-        )
+        let mut model = Mat4::from_translation(Vec3::new(self.position[0], self.position[1], 0.0));
+
+        model *= Mat4::from_translation(Vec3::new(0.5 * self.scale[0], 0.5 * self.scale[1], 0.0));
+        model *= Mat4::from_rotation_z(-self.rotation_degrees.to_radians());
+        model *= Mat4::from_translation(Vec3::new(-0.5 * self.scale[0], -0.5 * self.scale[1], 0.0));
+
+        model *= Mat4::from_scale(Vec3::new(self.scale[0], self.scale[1], 1.0));
+
+        model
     }
 }

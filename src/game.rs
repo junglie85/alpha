@@ -40,7 +40,9 @@ impl Application for Game {
             let a = f32::from_str(colors[3]).unwrap();
             let color = [r, g, b, a];
 
-            let rect = Rect::new([0.0, 0.0], color);
+            let mut rect = Rect::new([100.0, 100.0], color);
+            rect.scale = [300.0, 300.0];
+            rect.rotation_degrees = 10.0;
             self.rects.push(rect);
         }
     }
