@@ -1,24 +1,38 @@
 use crate::editor::Pause;
 use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
-use crate::renderer::{Rect, Renderer};
+use crate::renderer::{Camera, Rect, Renderer};
 use log::info;
 use std::str::FromStr;
 use std::{fs, path};
 use winit::event::Event;
 use winit::window::Window;
 
-#[derive(Default)]
 pub struct Game {
     paused: bool,
     pub rects: Vec<Rect>,
+    pub camera: Camera,
+}
+
+impl Game {
+    pub fn new(_window: &Window, renderer: &Renderer) -> Self {
+        let paused = false;
+        let rects = Vec::new();
+        let camera = Camera::new(renderer.width, renderer.height);
+
+        Self {
+            paused,
+            rects,
+            camera,
+        }
+    }
 }
 
 impl CreateApplication for Game {
     type App = Self;
 
-    fn create(_window: &Window, _renderer: &Renderer) -> Result<Self::App, Error> {
-        Ok(Game::default())
+    fn create(window: &Window, renderer: &Renderer) -> Result<Self::App, Error> {
+        Ok(Game::new(window, renderer))
     }
 }
 
@@ -53,7 +67,7 @@ impl Application for Game {
         let paused_or_running = if self.paused { "paused" } else { "running" };
         info!("GAME on_update - {}", paused_or_running);
 
-        renderer.draw_rect(&self.rects[0]);
+        renderer.draw_rect(&self.rects[0], &self.camera);
 
         Ok(())
     }

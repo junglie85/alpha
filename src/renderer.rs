@@ -1,6 +1,6 @@
 use crate::error::Error;
 use bytemuck::{cast_slice, Pod, Zeroable};
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec3};
 use log::info;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -109,7 +109,7 @@ impl Renderer {
         }
     }
 
-    pub fn draw_rect(&mut self, rect: &Rect) {
+    pub fn draw_rect(&mut self, rect: &Rect, camera: &Camera) {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -129,6 +129,11 @@ impl Renderer {
             0, 2, 3
         ];
 
+        let view_projection_uniform = ViewProjectionUniform {
+            view: camera.get_view().to_cols_array_2d(),
+            projection: camera.get_projection().to_cols_array_2d(),
+        };
+
         let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Vertex Buffer"),
             contents: cast_slice(&vertices),
@@ -147,25 +152,10 @@ impl Renderer {
             usage: BufferUsages::COPY_SRC,
         });
 
-        let view_ = glam::Mat4::look_at_lh(
-            glam::Vec3::new(-200.0, -200.0, -1.0),
-            glam::Vec3::new(-200.0, -200.0, 0.0),
-            glam::Vec3::Y,
-        );
-        // TODO: Set where the origin is - might want center of screen, not bottom left.
-        // TODO: Set Pixels-Per-Unit and scale things accordingly.
-        let projection_ =
-            glam::Mat4::orthographic_lh(0.0, self.width as f32, 0.0, self.height as f32, -1.0, 1.0);
-        let vp = ViewProjectionUniform {
-            view: view_.to_cols_array_2d(),
-            // view: Mat4::IDENTITY.to_cols_array_2d(),
-            projection: projection_.to_cols_array_2d(),
-        };
-
         let view_projection_uniform_buffer =
             self.device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("View Projection Uniform Buffer"),
-                contents: cast_slice(&[vp]),
+                contents: cast_slice(&[view_projection_uniform]),
                 usage: BufferUsages::COPY_SRC,
             });
 
@@ -502,5 +492,44 @@ impl Rect {
         model *= Mat4::from_scale(Vec3::new(self.scale[0], self.scale[1], 1.0));
 
         model
+    }
+}
+
+// TODO: Set where the world origin is - might want center of screen, not bottom left.
+// TODO: Set Pixels-Per-Unit and scale things accordingly.
+#[allow(dead_code)]
+pub struct Camera {
+    width: u32,
+    height: u32,
+    view: Mat4,
+    projection: Mat4,
+}
+
+impl Camera {
+    pub fn new(width: u32, height: u32) -> Self {
+        let projection =
+            glam::Mat4::orthographic_lh(0.0, width as f32, 0.0, height as f32, -1.0, 1.0);
+
+        Self {
+            width,
+            height,
+            view: Mat4::IDENTITY,
+            projection,
+        }
+    }
+
+    pub fn get_view(&self) -> Mat4 {
+        // Just use some jankey values for look at for now.
+        let view = glam::Mat4::look_at_lh(
+            glam::Vec3::new(-200.0, -200.0, -1.0),
+            glam::Vec3::new(-200.0, -200.0, 0.0),
+            glam::Vec3::Y,
+        );
+
+        view
+    }
+
+    pub fn get_projection(&self) -> Mat4 {
+        self.projection
     }
 }
