@@ -5,8 +5,8 @@ struct VertexOutput {
     [[location(0)]] color: vec3<f32>;
 };
 
-struct Model {
-    matrix: mat4x4<f32>;
+struct Transform {
+    model: mat4x4<f32>;
 };
 
 struct ViewProjection {
@@ -15,10 +15,9 @@ struct ViewProjection {
 };
 
 [[group(0), binding(0)]]
-var<uniform> model: Model;
+var<uniform> transform: Transform;
 
-// TODO: These should be different bindings in the same bind group.
-[[group(1), binding(0)]]
+[[group(0), binding(1)]]
 var<uniform> view_projection: ViewProjection;
 
 [[stage(vertex)]]
@@ -28,7 +27,7 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.color = color;
-    out.clip_position = view_projection.projection * view_projection.view * model.matrix * vec4<f32>(position, 1.0);
+    out.clip_position = view_projection.projection * view_projection.view * transform.model * vec4<f32>(position, 1.0);
     return out;
 }
 

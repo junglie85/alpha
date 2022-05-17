@@ -1,7 +1,8 @@
 use crate::editor::Pause;
 use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
-use crate::renderer::{Camera, Rect, Renderer};
+use crate::renderer::camera::Camera;
+use crate::renderer::{rect::Rect, Renderer};
 use log::info;
 use std::str::FromStr;
 use std::{fs, path};
