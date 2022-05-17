@@ -6,7 +6,7 @@ use crate::renderer::{rect::Rect, Renderer};
 use log::info;
 use std::str::FromStr;
 use std::{fs, path};
-use winit::event::Event;
+use winit::event::{Event, WindowEvent};
 use winit::window::Window;
 
 pub struct Game {
@@ -62,12 +62,17 @@ impl Application for Game {
         }
     }
 
-    fn on_event(&mut self, _event: &Event<()>) {}
+    fn on_event(&mut self, event: &Event<()>) {
+        if let Event::WindowEvent {
+            event: WindowEvent::Resized(size),
+            ..
+        } = event
+        {
+            self.camera.resize(size.width, size.height);
+        }
+    }
 
     fn on_update(&mut self, _window: &Window, renderer: &mut Renderer) -> Result<(), Error> {
-        let paused_or_running = if self.paused { "paused" } else { "running" };
-        info!("GAME on_update - {}", paused_or_running);
-
         renderer.draw_rect(&self.rects[0], &self.camera);
 
         Ok(())

@@ -10,7 +10,8 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Instant;
 use std::{fs, path};
-use winit::event::Event;
+use winit::dpi::PhysicalSize;
+use winit::event::{Event, WindowEvent};
 use winit::window::Window;
 
 pub trait Pause {
@@ -23,6 +24,7 @@ struct EditorState {
     pub changed_since_last_save: bool,
     pub save_requested: bool,
     pub build_requested: bool,
+    pub window_resized: bool,
 }
 
 pub struct Editor {
@@ -63,14 +65,13 @@ impl CreateApplication for Editor {
 
         let mut state = EditorState::default();
         state.editor_title = String::from("Alpha Editor");
+        state.window_resized = true;
 
-        ////// Texture to render GAME into ////////
-        let game_scene_texture_size = 256u32;
-
+        // TODO: Recreate this texture whenever we resize the editor/scene view window.
         let game_scene_texture_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
-                width: game_scene_texture_size,
-                height: game_scene_texture_size,
+                width: 1280,
+                height: 720,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -112,6 +113,13 @@ impl Application for Editor {
 
     fn on_event(&mut self, event: &Event<()>) {
         self.egui_platform.handle_event(event);
+        if let Event::WindowEvent {
+            event: WindowEvent::Resized(_size),
+            ..
+        } = event
+        {
+            self.state.window_resized = true;
+        }
     }
 
     fn on_update(&mut self, window: &Window, renderer: &mut Renderer) -> Result<(), Error> {
@@ -178,6 +186,16 @@ impl Application for Editor {
         egui::CentralPanel::default().show(&egui_ctx, |ui| {
             let size = ui.available_size_before_wrap();
             ui.image(game_scene_texture_id, size);
+
+            if self.state.window_resized {
+                let width = (size.x * window.scale_factor() as f32) as u32;
+                let height = (size.y * window.scale_factor() as f32) as u32;
+                let resize_event = Event::WindowEvent {
+                    window_id: window.id(),
+                    event: WindowEvent::Resized(PhysicalSize::new(width, height)),
+                };
+                game.on_event(&resize_event);
+            }
         });
 
         if self.state.changed_since_last_save {

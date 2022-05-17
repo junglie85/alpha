@@ -23,6 +23,15 @@ impl Camera {
         }
     }
 
+    pub fn resize(&mut self, width: u32, height: u32) {
+        let projection =
+            glam::Mat4::orthographic_lh(0.0, width as f32, 0.0, height as f32, -1.0, 1.0);
+
+        self.width = width;
+        self.height = height;
+        self.projection = projection;
+    }
+
     pub fn get_view(&self) -> Mat4 {
         // Just use some jankey values for look at for now.
         let view = glam::Mat4::look_at_lh(
