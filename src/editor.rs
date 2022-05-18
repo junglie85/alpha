@@ -2,7 +2,7 @@ use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
 use crate::game::Game;
 use crate::renderer::Renderer;
-use egui::FontDefinitions;
+use egui::{FontDefinitions, Slider};
 use egui_wgpu_backend::ScreenDescriptor;
 use egui_winit_platform::Platform;
 use log::info;
@@ -10,7 +10,8 @@ use std::cell::RefCell;
 use std::sync::Arc;
 use std::time::Instant;
 use std::{fs, path};
-use winit::event::Event;
+use winit::dpi::PhysicalSize;
+use winit::event::{Event, WindowEvent};
 use winit::window::Window;
 
 pub trait Pause {
@@ -23,6 +24,7 @@ struct EditorState {
     pub changed_since_last_save: bool,
     pub save_requested: bool,
     pub build_requested: bool,
+    pub window_resized: bool,
 }
 
 pub struct Editor {
@@ -63,14 +65,13 @@ impl CreateApplication for Editor {
 
         let mut state = EditorState::default();
         state.editor_title = String::from("Alpha Editor");
+        state.window_resized = true;
 
-        ////// Texture to render GAME into ////////
-        let game_scene_texture_size = 256u32;
-
+        // TODO: Recreate this texture whenever we resize the editor/scene view window.
         let game_scene_texture_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
-                width: game_scene_texture_size,
-                height: game_scene_texture_size,
+                width: 1280,
+                height: 720,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -112,6 +113,13 @@ impl Application for Editor {
 
     fn on_event(&mut self, event: &Event<()>) {
         self.egui_platform.handle_event(event);
+        if let Event::WindowEvent {
+            event: WindowEvent::Resized(_size),
+            ..
+        } = event
+        {
+            self.state.window_resized = true;
+        }
     }
 
     fn on_update(&mut self, window: &Window, renderer: &mut Renderer) -> Result<(), Error> {
@@ -167,17 +175,61 @@ impl Application for Editor {
         });
 
         egui::SidePanel::right("right pane").show(&egui_ctx, |ui| {
-            if ui
-                .color_edit_button_rgba_unmultiplied(&mut game.rects[0].color)
-                .changed()
-            {
-                self.state.changed_since_last_save = true;
-            }
+            egui::CollapsingHeader::new("Shape")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.label("Color");
+                    if ui
+                        .color_edit_button_rgba_unmultiplied(&mut game.rects[0].color)
+                        .changed()
+                    {
+                        self.state.changed_since_last_save = true;
+                    }
+                });
+
+            egui::CollapsingHeader::new("Transform")
+                .default_open(true)
+                .show(ui, |ui| {
+                    ui.label("Position");
+                    let slider = Slider::new(&mut game.rects[0].position[0], -2000.0..=2000.0)
+                        .text("x")
+                        .clamp_to_range(false);
+                    ui.add(slider);
+                    let slider = Slider::new(&mut game.rects[0].position[1], -2000.0..=2000.0)
+                        .text("y")
+                        .clamp_to_range(false);
+                    ui.add(slider);
+
+                    ui.label("Rotation");
+                    let slider = Slider::new(&mut game.rects[0].rotation_degrees, 0.0..=360.0)
+                        .clamp_to_range(false);
+                    ui.add(slider);
+
+                    ui.label("Size");
+                    let slider = Slider::new(&mut game.rects[0].scale[0], 0.0..=2000.0)
+                        .text("width")
+                        .clamp_to_range(false);
+                    ui.add(slider);
+                    let slider = Slider::new(&mut game.rects[0].scale[1], 0.0..=2000.0)
+                        .text("height")
+                        .clamp_to_range(false);
+                    ui.add(slider);
+                });
         });
 
         egui::CentralPanel::default().show(&egui_ctx, |ui| {
             let size = ui.available_size_before_wrap();
             ui.image(game_scene_texture_id, size);
+
+            if self.state.window_resized {
+                let width = (size.x * window.scale_factor() as f32) as u32;
+                let height = (size.y * window.scale_factor() as f32) as u32;
+                let resize_event = Event::WindowEvent {
+                    window_id: window.id(),
+                    event: WindowEvent::Resized(PhysicalSize::new(width, height)),
+                };
+                game.on_event(&resize_event);
+            }
         });
 
         if self.state.changed_since_last_save {
@@ -239,14 +291,22 @@ impl Application for Editor {
         self.frames += 1;
 
         if self.state.save_requested {
+            let x = game.rects[0].position[0];
+            let y = game.rects[0].position[1];
+            let width = game.rects[0].scale[0];
+            let height = game.rects[0].scale[1];
+            let rotation = game.rects[0].rotation_degrees;
+            let transform = format!("{} {} {} {} {}", x, y, width, height, rotation);
+
             let r = game.rects[0].color[0];
             let g = game.rects[0].color[1];
             let b = game.rects[0].color[2];
             let a = game.rects[0].color[3];
             let color = format!("{} {} {} {}", r, g, b, a);
 
+            let state = format!("{}\n{}\n", transform, color);
             let path = path::Path::new("alpha_game.alpha");
-            fs::write(path, color).expect("Unable to write file alpha_game.alpha");
+            fs::write(path, state).expect("Unable to write file alpha_game.alpha");
 
             self.state.save_requested = false;
             self.state.changed_since_last_save = false;

@@ -1,18 +1,14 @@
 use crate::error::Error;
-use bytemuck::{cast_slice, Pod, Zeroable};
+use crate::renderer::camera::Camera;
+use crate::renderer::rect::{Rect, RectPipeline};
 use log::info;
 use std::cell::RefCell;
 use std::sync::Arc;
-use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
-    Adapter, BlendState, Buffer, BufferAddress, BufferDescriptor, BufferUsages, ColorTargetState,
-    ColorWrites, Device, Face, FragmentState, FrontFace, Instance, MultisampleState,
-    PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology, Queue,
-    RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, Surface,
-    SurfaceConfiguration, TextureView, VertexAttribute, VertexBufferLayout, VertexFormat,
-    VertexState, VertexStepMode,
-};
+use wgpu::{Adapter, Device, Instance, Queue, Surface, SurfaceConfiguration, TextureView};
 use winit::window::Window;
+
+pub mod camera;
+pub mod rect;
 
 pub fn init(window: &Window) -> Result<Renderer, Error> {
     let renderer = pollster::block_on(Renderer::new(window));
@@ -107,54 +103,7 @@ impl Renderer {
         }
     }
 
-    pub fn draw_rect(&mut self, rect: &Rect) {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Render Encoder"),
-            });
-
-        let vertices = [
-            Vertex::new([0.5, 0.5], rect.color),
-            Vertex::new([-0.5, 0.5], rect.color),
-            Vertex::new([-0.5, -0.5], rect.color),
-            Vertex::new([0.5, -0.5], rect.color),
-        ];
-
-        #[rustfmt::skip]
-        let indices: [u16; 6] = [
-            0, 1, 2,
-            0, 2, 3
-        ];
-
-        let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: cast_slice(&vertices),
-            usage: BufferUsages::COPY_SRC,
-        });
-
-        let index_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: cast_slice(&indices),
-            usage: BufferUsages::COPY_SRC,
-        });
-
-        encoder.copy_buffer_to_buffer(
-            &vertex_buffer,
-            0,
-            &self.rect_pipeline.vertex_buffer,
-            0,
-            (std::mem::size_of::<Vertex>() * vertices.len()) as BufferAddress,
-        );
-
-        encoder.copy_buffer_to_buffer(
-            &index_buffer,
-            0,
-            &self.rect_pipeline.index_buffer,
-            0,
-            (std::mem::size_of::<u16>() * indices.len()) as BufferAddress,
-        );
-
+    pub fn draw_rect(&mut self, rect: &Rect, camera: &Camera) {
         let (output, view) = if let Some(view) = self.output_texture.take() {
             (None, view)
         } else {
@@ -168,39 +117,14 @@ impl Renderer {
             (Some(output), Arc::new(RefCell::new(view)))
         };
 
-        {
-            let view = &view.as_ref().borrow();
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[
-                    // This is what [[location(0)]] in the fragment shader targets
-                    wgpu::RenderPassColorAttachment {
-                        view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.1,
-                                g: 0.2,
-                                b: 0.3,
-                                a: 1.0,
-                            }),
-                            store: true,
-                        },
-                    },
-                ],
-                depth_stencil_attachment: None,
-            });
+        let command_buffers = rect::draw_rect(
+            rect,
+            camera,
+            self.device.as_ref(),
+            &self.rect_pipeline,
+            &view.as_ref().borrow(),
+        );
 
-            render_pass.set_pipeline(&self.rect_pipeline.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.rect_pipeline.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(
-                self.rect_pipeline.index_buffer.slice(..),
-                self.rect_pipeline.index_buffer_format,
-            );
-            render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
-        }
-
-        let command_buffers = vec![encoder.finish()];
         self.queue.submit(command_buffers);
 
         if let Some(output) = output {
@@ -212,136 +136,5 @@ impl Renderer {
 
     pub fn render_to_texture(&mut self, texture: Option<Arc<RefCell<TextureView>>>) {
         self.output_texture = texture;
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct Vertex {
-    pub position: [f32; 2],
-    pub color: [f32; 4],
-}
-
-impl Vertex {
-    pub fn new(position: [f32; 2], color: [f32; 4]) -> Self {
-        Self { position, color }
-    }
-
-    pub fn desc<'a>() -> VertexBufferLayout<'a> {
-        VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as BufferAddress,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &[
-                VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: VertexFormat::Float32x2,
-                },
-                VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 2]>() as BufferAddress,
-                    shader_location: 1,
-                    format: VertexFormat::Float32x4,
-                },
-            ],
-        }
-    }
-}
-
-pub struct RectPipeline {
-    pub render_pipeline: RenderPipeline,
-    pub vertex_buffer: Buffer,
-    pub index_buffer: Buffer,
-    pub index_buffer_format: wgpu::IndexFormat,
-}
-
-impl RectPipeline {
-    const INITIAL_RECT_COUNT: usize = 1;
-
-    pub fn init(device: &Device, surface_config: &SurfaceConfiguration) -> Self {
-        let shader = device.create_shader_module(&ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: ShaderSource::Wgsl(include_str!("../resources/shaders/rect.wgsl").into()),
-        });
-
-        let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
-
-        let render_pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
-            },
-            fragment: Some(FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[ColorTargetState {
-                    format: surface_config.format,
-                    blend: Some(BlendState::REPLACE),
-                    write_mask: ColorWrites::ALL,
-                }],
-            }),
-            primitive: PrimitiveState {
-                topology: PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: FrontFace::Ccw,
-                cull_mode: Some(Face::Back),
-                // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
-                polygon_mode: PolygonMode::Fill,
-                // Requires Features::DEPTH_CLIP_CONTROL
-                unclipped_depth: false,
-                // Requires Features::CONSERVATIVE_RASTERIZATION
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        });
-
-        let vertex_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Vertex Buffer"),
-            size: (std::mem::size_of::<Vertex>() * 4 * Self::INITIAL_RECT_COUNT as usize)
-                as BufferAddress,
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let index_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Index Buffer"),
-            size: (std::mem::size_of::<u16>() * 6 * Self::INITIAL_RECT_COUNT as usize)
-                as BufferAddress,
-            usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let index_buffer_format = wgpu::IndexFormat::Uint16;
-
-        RectPipeline {
-            render_pipeline,
-            vertex_buffer,
-            index_buffer,
-            index_buffer_format,
-        }
-    }
-}
-
-// TODO: This needs to have coords and size specified in pixels/world coords.
-pub struct Rect {
-    pub position: [f32; 2],
-    pub color: [f32; 4],
-}
-
-impl Rect {
-    pub fn new(position: [f32; 2], color: [f32; 4]) -> Self {
-        Self { position, color }
     }
 }
