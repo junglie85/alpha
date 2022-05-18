@@ -48,16 +48,25 @@ impl Application for Game {
         let file = fs::read_to_string(path);
 
         if let Ok(config) = file {
-            let colors: Vec<&str> = config.split_whitespace().collect();
+            let state: Vec<&str> = config.split('\n').collect();
+
+            let transform: Vec<&str> = state[0].split_whitespace().collect();
+            let x = f32::from_str(transform[0]).unwrap();
+            let y = f32::from_str(transform[1]).unwrap();
+            let width = f32::from_str(transform[2]).unwrap();
+            let height = f32::from_str(transform[3]).unwrap();
+            let rotation = f32::from_str(transform[4]).unwrap();
+
+            let colors: Vec<&str> = state[1].split_whitespace().collect();
             let r = f32::from_str(colors[0]).unwrap();
             let g = f32::from_str(colors[1]).unwrap();
             let b = f32::from_str(colors[2]).unwrap();
             let a = f32::from_str(colors[3]).unwrap();
             let color = [r, g, b, a];
 
-            let mut rect = Rect::new([100.0, 100.0], color);
-            rect.scale = [300.0, 300.0];
-            rect.rotation_degrees = 10.0;
+            let mut rect = Rect::new([x, y], color);
+            rect.scale = [width, height];
+            rect.rotation_degrees = rotation;
             self.rects.push(rect);
         }
     }
