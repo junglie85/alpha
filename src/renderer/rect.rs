@@ -1,74 +1,52 @@
-use crate::renderer::camera::Camera;
-use bytemuck::{cast_slice, Pod, Zeroable};
-use glam::{Mat4, Vec3};
-use wgpu::util::DeviceExt;
+use bytemuck::{Pod, Zeroable};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use wgpu::{
-    util::BufferInitDescriptor, BindGroup, BindGroupDescriptor, BindGroupEntry,
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BlendState, Buffer,
-    BufferAddress, BufferBindingType, BufferDescriptor, BufferUsages, ColorTargetState,
-    ColorWrites, CommandBuffer, Device, Face, FragmentState, FrontFace, IndexFormat,
-    MultisampleState, PipelineLayoutDescriptor, PolygonMode, PrimitiveState, PrimitiveTopology,
-    RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages,
-    SurfaceConfiguration, TextureView, VertexAttribute, VertexBufferLayout, VertexFormat,
-    VertexState, VertexStepMode,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingType, BlendState, Buffer, BufferAddress, BufferBindingType,
+    BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, Device, Face, FragmentState,
+    FrontFace, IndexFormat, MultisampleState, PipelineLayoutDescriptor, PolygonMode,
+    PrimitiveState, PrimitiveTopology, RenderPipeline, RenderPipelineDescriptor,
+    ShaderModuleDescriptor, ShaderSource, ShaderStages, SurfaceConfiguration, VertexAttribute,
+    VertexBufferLayout, VertexFormat, VertexState, VertexStepMode,
 };
 
 // TODO: This needs to have coords and size specified in pixels/world coords.
 // TODO: Split into relevant components.
 // TODO: Set origin and ensure TRS happens in relation to it.
 pub struct Rect {
-    pub position: [f32; 2],
-    pub color: [f32; 4],
-
-    pub scale: [f32; 2],
+    pub color: Vec4,
+    pub position: Vec2,
     pub rotation_degrees: f32,
+    pub size: Vec2,
 }
 
 impl Rect {
-    const VERTEX_COORDS: [[f32; 2]; 4] = [[1.0, 1.0], [0.0, 1.0], [0.0, 0.0], [1.0, 0.0]];
+    pub const VERTEX_COORDS: [[f32; 2]; 4] = [[1.0, 1.0], [0.0, 1.0], [0.0, 0.0], [1.0, 0.0]];
 
     #[rustfmt::skip]
-    const INDICES: [u16; 6] = [
+    pub const INDICES: [u16; 6] = [
         0, 1, 2,
         0, 2, 3
     ];
 
-    pub fn new(position: [f32; 2], color: [f32; 4]) -> Self {
-        let scale = [1.0, 1.0];
-        let rotation_degrees = 0.0;
-
+    pub fn new(position: Vec2, rotation_degrees: f32, size: Vec2, color: Vec4) -> Self {
         Self {
-            position,
             color,
-            scale,
+            position,
             rotation_degrees,
+            size,
         }
-    }
-
-    pub fn vertices(&self) -> [Vertex; 4] {
-        [
-            Vertex::new(Self::VERTEX_COORDS[0], self.color),
-            Vertex::new(Self::VERTEX_COORDS[1], self.color),
-            Vertex::new(Self::VERTEX_COORDS[2], self.color),
-            Vertex::new(Self::VERTEX_COORDS[3], self.color),
-        ]
-    }
-
-    pub fn indices(&self) -> &[u16] {
-        &Self::INDICES
     }
 
     pub fn scale_rotation_translation(&self) -> Mat4 {
         let mut transform =
-            Mat4::from_translation(Vec3::new(self.position[0], self.position[1], 0.0));
+            Mat4::from_translation(Vec3::new(self.position.x, self.position.y, 0.0));
 
-        transform *=
-            Mat4::from_translation(Vec3::new(0.5 * self.scale[0], 0.5 * self.scale[1], 0.0));
+        transform *= Mat4::from_translation(Vec3::new(0.5 * self.size.x, 0.5 * self.size.y, 0.0));
         transform *= Mat4::from_rotation_z(-self.rotation_degrees.to_radians());
-        transform *=
-            Mat4::from_translation(Vec3::new(-0.5 * self.scale[0], -0.5 * self.scale[1], 0.0));
+        transform *= Mat4::from_translation(Vec3::new(-0.5 * self.size.x, -0.5 * self.size.y, 0.0));
 
-        transform *= Mat4::from_scale(Vec3::new(self.scale[0], self.scale[1], 1.0));
+        transform *= Mat4::from_scale(Vec3::new(self.size.x, self.size.y, 1.0));
 
         transform
     }
@@ -107,10 +85,11 @@ impl Vertex {
 }
 
 pub struct RectPipeline {
+    pub max_vertices: usize,
+    pub max_indices: usize,
     pub vertex_buffer: Buffer,
     pub index_buffer: Buffer,
     pub index_buffer_format: IndexFormat,
-    pub transform_uniform_buffer: Buffer,
     pub view_projection_uniform_buffer: Buffer,
     pub uniforms_bind_group: BindGroup,
     pub render_pipeline: RenderPipeline,
@@ -126,30 +105,12 @@ impl RectPipeline {
             source: ShaderSource::Wgsl(include_str!("../../resources/shaders/rect.wgsl").into()),
         });
 
-        let vertex_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Vertex Buffer"),
-            size: (std::mem::size_of::<Vertex>() * 4 * Self::INITIAL_RECT_COUNT as usize)
-                as BufferAddress,
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let max_vertices = 4 * Self::INITIAL_RECT_COUNT;
+        let max_indices = 6 * Self::INITIAL_RECT_COUNT;
 
-        let index_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Index Buffer"),
-            size: (std::mem::size_of::<u16>() * 6 * Self::INITIAL_RECT_COUNT as usize)
-                as BufferAddress,
-            usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let (vertex_buffer, index_buffer) = Self::create_buffers(device, max_vertices, max_indices);
 
         let index_buffer_format = wgpu::IndexFormat::Uint16;
-
-        let transform_uniform_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Transform Uniform Buffer"),
-            size: std::mem::size_of::<[[f32; 4]; 4]>() as BufferAddress,
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
 
         let view_projection_uniform_buffer = device.create_buffer(&BufferDescriptor {
             label: Some("View Projection Uniform Buffer"),
@@ -161,51 +122,30 @@ impl RectPipeline {
         let uniforms_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("Uniforms Bind Group Layout"),
-                entries: &[
-                    BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: ShaderStages::VERTEX,
-                        ty: BindingType::Buffer {
-                            ty: BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
+                    count: None,
+                }],
             });
 
         let uniforms_bind_group = device.create_bind_group(&BindGroupDescriptor {
             label: Some("Uniforms Bind Group"),
             layout: &uniforms_bind_group_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: transform_uniform_buffer.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: view_projection_uniform_buffer.as_entire_binding(),
-                },
-            ],
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: view_projection_uniform_buffer.as_entire_binding(),
+            }],
         });
 
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[
-                &uniforms_bind_group_layout,
-                // &view_projection_uniform_bind_group_layout,
-            ],
+            bind_group_layouts: &[&uniforms_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -248,132 +188,50 @@ impl RectPipeline {
         });
 
         RectPipeline {
+            max_vertices,
+            max_indices,
             vertex_buffer,
             index_buffer,
             index_buffer_format,
-            transform_uniform_buffer,
             uniforms_bind_group,
             view_projection_uniform_buffer,
             render_pipeline,
         }
     }
+
+    pub fn resize_buffers(&mut self, device: &Device, vertex_count: usize, index_count: usize) {
+        let (vertex_buffer, index_buffer) = Self::create_buffers(device, vertex_count, index_count);
+
+        self.vertex_buffer = vertex_buffer;
+        self.index_buffer = index_buffer;
+    }
+
+    fn create_buffers(
+        device: &Device,
+        vertex_count: usize,
+        index_count: usize,
+    ) -> (Buffer, Buffer) {
+        let vertex_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Vertex Buffer"),
+            size: (std::mem::size_of::<Vertex>() * vertex_count) as BufferAddress,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let index_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Index Buffer"),
+            size: (std::mem::size_of::<u16>() * index_count) as BufferAddress,
+            usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        (vertex_buffer, index_buffer)
+    }
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-struct ViewProjectionUniform {
-    view: [[f32; 4]; 4],
-    projection: [[f32; 4]; 4],
-}
-
-pub fn draw_rect(
-    rect: &Rect,
-    camera: &Camera,
-    device: &Device,
-    rect_pipeline: &RectPipeline,
-    view: &TextureView,
-) -> Vec<CommandBuffer> {
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Render Encoder"),
-    });
-
-    let view_projection_uniform = ViewProjectionUniform {
-        view: camera.get_view().to_cols_array_2d(),
-        projection: camera.get_projection().to_cols_array_2d(),
-    };
-
-    let vertices = &rect.vertices();
-    let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("Vertex Buffer"),
-        contents: cast_slice(vertices),
-        usage: BufferUsages::COPY_SRC,
-    });
-
-    let indices = rect.indices();
-    let index_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("Index Buffer"),
-        contents: cast_slice(indices),
-        usage: BufferUsages::COPY_SRC,
-    });
-
-    let transform_uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("Transform Uniform Buffer"),
-        contents: cast_slice(rect.scale_rotation_translation().as_ref()),
-        usage: BufferUsages::COPY_SRC,
-    });
-
-    let view_projection_uniform_buffer = device.create_buffer_init(&BufferInitDescriptor {
-        label: Some("View Projection Uniform Buffer"),
-        contents: cast_slice(&[view_projection_uniform]),
-        usage: BufferUsages::COPY_SRC,
-    });
-
-    encoder.copy_buffer_to_buffer(
-        &vertex_buffer,
-        0,
-        &rect_pipeline.vertex_buffer,
-        0,
-        (std::mem::size_of::<Vertex>() * vertices.len()) as BufferAddress,
-    );
-
-    encoder.copy_buffer_to_buffer(
-        &index_buffer,
-        0,
-        &rect_pipeline.index_buffer,
-        0,
-        (std::mem::size_of::<u16>() * indices.len()) as BufferAddress,
-    );
-
-    encoder.copy_buffer_to_buffer(
-        &transform_uniform_buffer,
-        0,
-        &rect_pipeline.transform_uniform_buffer,
-        0,
-        std::mem::size_of::<Mat4>() as BufferAddress,
-    );
-
-    encoder.copy_buffer_to_buffer(
-        &view_projection_uniform_buffer,
-        0,
-        &rect_pipeline.view_projection_uniform_buffer,
-        0,
-        std::mem::size_of::<ViewProjectionUniform>() as BufferAddress,
-    );
-
-    {
-        let view = &view;
-        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Render Pass"),
-            color_attachments: &[
-                // This is what [[location(0)]] in the fragment shader targets
-                wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
-                        store: true,
-                    },
-                },
-            ],
-            depth_stencil_attachment: None,
-        });
-
-        render_pass.set_pipeline(&rect_pipeline.render_pipeline);
-        render_pass.set_bind_group(0, &rect_pipeline.uniforms_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, rect_pipeline.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(
-            rect_pipeline.index_buffer.slice(..),
-            rect_pipeline.index_buffer_format,
-        );
-        render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
-    }
-
-    let command_buffers = vec![encoder.finish()];
-
-    command_buffers
+pub struct ViewProjectionUniform {
+    pub(crate) view: [[f32; 4]; 4],
+    pub(crate) projection: [[f32; 4]; 4],
 }

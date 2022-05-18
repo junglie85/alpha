@@ -1,10 +1,16 @@
 use crate::error::Error;
 use crate::renderer::camera::Camera;
-use crate::renderer::rect::{Rect, RectPipeline};
+use crate::renderer::rect::{Rect, RectPipeline, Vertex, ViewProjectionUniform};
+use bytemuck::cast_slice;
+use glam::{Mat4, Vec4, Vec4Swizzles};
 use log::info;
 use std::cell::RefCell;
 use std::sync::Arc;
-use wgpu::{Adapter, Device, Instance, Queue, Surface, SurfaceConfiguration, TextureView};
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use wgpu::{
+    Adapter, BufferAddress, BufferUsages, CommandEncoder, Device, Instance, Queue, Surface,
+    SurfaceConfiguration, SurfaceTexture, TextureView,
+};
 use winit::window::Window;
 
 pub mod camera;
@@ -92,18 +98,7 @@ impl Renderer {
         }
     }
 
-    pub fn resize(&mut self, width: u32, height: u32, scale_factor: f64) {
-        if width > 0 && height > 0 {
-            self.width = width;
-            self.height = height;
-            self.scale_factor = scale_factor;
-            self.surface_config.width = width;
-            self.surface_config.height = height;
-            self.surface.configure(&self.device, &self.surface_config);
-        }
-    }
-
-    pub fn draw_rect(&mut self, rect: &Rect, camera: &Camera) {
+    pub fn prepare(&mut self) -> RenderContext {
         let (output, view) = if let Some(view) = self.output_texture.take() {
             (None, view)
         } else {
@@ -117,24 +112,187 @@ impl Renderer {
             (Some(output), Arc::new(RefCell::new(view)))
         };
 
-        let command_buffers = rect::draw_rect(
-            rect,
-            camera,
-            self.device.as_ref(),
-            &self.rect_pipeline,
-            &view.as_ref().borrow(),
+        RenderContext { output, view }
+    }
+
+    pub fn begin_scene(&mut self, camera: &Camera) -> Scene {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Render Encoder"),
+            });
+
+        let view_projection_uniform = ViewProjectionUniform {
+            view: camera.get_view().to_cols_array_2d(),
+            projection: camera.get_projection().to_cols_array_2d(),
+        };
+
+        let view_projection_uniform_buffer =
+            self.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("View Projection Uniform Buffer"),
+                contents: cast_slice(&[view_projection_uniform]),
+                usage: BufferUsages::COPY_SRC,
+            });
+
+        encoder.copy_buffer_to_buffer(
+            &view_projection_uniform_buffer,
+            0,
+            &self.rect_pipeline.view_projection_uniform_buffer, // TODO: Should this uniform buffer be tied to specific pipeline?
+            0,
+            std::mem::size_of::<ViewProjectionUniform>() as BufferAddress,
         );
 
-        self.queue.submit(command_buffers);
+        let vertices = Vec::new();
 
-        if let Some(output) = output {
+        let indices = Vec::new();
+
+        let transform = Mat4::IDENTITY;
+
+        let index_offset = 0;
+
+        Scene {
+            encoder,
+            vertices,
+            indices,
+            transform,
+            index_offset,
+        }
+    }
+
+    pub fn end_scene(&mut self, mut scene: Scene, ctx: &mut RenderContext) {
+        let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: cast_slice(&scene.vertices),
+            usage: BufferUsages::COPY_SRC,
+        });
+
+        let index_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: cast_slice(&scene.indices),
+            usage: BufferUsages::COPY_SRC,
+        });
+
+        if scene.vertices.len() > self.rect_pipeline.max_vertices
+            || scene.indices.len() > self.rect_pipeline.max_indices
+        {
+            self.rect_pipeline.resize_buffers(
+                self.device.as_ref(),
+                scene.vertices.len(),
+                scene.indices.len(),
+            )
+        }
+
+        scene.encoder.copy_buffer_to_buffer(
+            &vertex_buffer,
+            0,
+            &self.rect_pipeline.vertex_buffer, // TODO: How do we know what pipeline to use here?
+            0,
+            (std::mem::size_of::<Vertex>() * scene.vertices.len()) as BufferAddress,
+        );
+
+        scene.encoder.copy_buffer_to_buffer(
+            &index_buffer,
+            0,
+            &self.rect_pipeline.index_buffer,
+            0,
+            (std::mem::size_of::<u16>() * scene.indices.len()) as BufferAddress,
+        );
+
+        {
+            let view = &ctx.view.as_ref().borrow();
+            let mut render_pass = scene
+                .encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Render Pass"),
+                    color_attachments: &[
+                        // This is what [[location(0)]] in the fragment shader targets
+                        wgpu::RenderPassColorAttachment {
+                            view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: 0.1,
+                                    g: 0.2,
+                                    b: 0.3,
+                                    a: 1.0,
+                                }),
+                                store: true,
+                            },
+                        },
+                    ],
+                    depth_stencil_attachment: None,
+                });
+
+            render_pass.set_pipeline(&self.rect_pipeline.render_pipeline);
+            render_pass.set_bind_group(0, &self.rect_pipeline.uniforms_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.rect_pipeline.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(
+                self.rect_pipeline.index_buffer.slice(..),
+                self.rect_pipeline.index_buffer_format,
+            );
+            render_pass.draw_indexed(0..scene.indices.len() as u32, 0, 0..1);
+        }
+        let command_buffers = vec![scene.encoder.finish()];
+        let command_buffers = command_buffers;
+
+        self.queue.submit(command_buffers);
+    }
+
+    pub fn finalise(&mut self, ctx: RenderContext) {
+        if let Some(output) = ctx.output {
             output.present();
         } else {
-            self.output_texture = Some(view);
+            self.output_texture = Some(ctx.view);
         }
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32, scale_factor: f64) {
+        if width > 0 && height > 0 {
+            self.width = width;
+            self.height = height;
+            self.scale_factor = scale_factor;
+            self.surface_config.width = width;
+            self.surface_config.height = height;
+            self.surface.configure(&self.device, &self.surface_config);
+        }
+    }
+
+    pub fn draw_rect(&mut self, scene: &mut Scene, rect: &Rect) {
+        let transform = rect.scale_rotation_translation();
+        let vertices: Vec<Vertex> = Rect::VERTEX_COORDS
+            .iter()
+            .map(|vc| {
+                let position = transform.mul_vec4(Vec4::from((vc[0], vc[1], 0.0, 1.0)));
+                let color = rect.color;
+                Vertex::new(position.xy().to_array(), color.to_array())
+            })
+            .collect();
+
+        scene.vertices.extend_from_slice(&vertices);
+
+        let indices: Vec<u16> = Rect::INDICES
+            .iter()
+            .map(|i| i + scene.index_offset)
+            .collect();
+
+        scene.indices.extend_from_slice(&indices);
+        scene.index_offset += 4;
     }
 
     pub fn render_to_texture(&mut self, texture: Option<Arc<RefCell<TextureView>>>) {
         self.output_texture = texture;
     }
+}
+
+pub struct RenderContext {
+    pub output: Option<SurfaceTexture>,
+    pub view: Arc<RefCell<TextureView>>,
+}
+
+pub struct Scene {
+    pub encoder: CommandEncoder,
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u16>,
+    pub transform: Mat4,
+    pub index_offset: u16,
 }
