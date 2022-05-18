@@ -3,6 +3,7 @@ use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
 use crate::renderer::camera::Camera;
 use crate::renderer::{rect::Rect, Renderer};
+use glam::{Vec2, Vec4};
 use log::info;
 use std::str::FromStr;
 use std::{fs, path};
@@ -62,11 +63,17 @@ impl Application for Game {
             let g = f32::from_str(colors[1]).unwrap();
             let b = f32::from_str(colors[2]).unwrap();
             let a = f32::from_str(colors[3]).unwrap();
-            let color = [r, g, b, a];
+            let color = Vec4::new(r, g, b, a);
 
-            let mut rect = Rect::new([x, y], color);
-            rect.scale = [width, height];
-            rect.rotation_degrees = rotation;
+            let rect = Rect::new(Vec2::new(x, y), rotation, Vec2::new(width, height), color);
+            self.rects.push(rect);
+
+            let rect = Rect::new(
+                Vec2::new(400.0, 400.0),
+                0.0,
+                Vec2::new(100.0, 100.0),
+                Vec4::new(1.0, 0.0, 0.0, 1.0),
+            );
             self.rects.push(rect);
         }
     }
@@ -82,7 +89,15 @@ impl Application for Game {
     }
 
     fn on_update(&mut self, _window: &Window, renderer: &mut Renderer) -> Result<(), Error> {
-        renderer.draw_rect(&self.rects[0], &self.camera);
+        let mut render_ctx = renderer.prepare();
+        let mut scene = renderer.begin_scene(&self.camera);
+
+        for rect in &self.rects {
+            renderer.draw_rect(&mut scene, rect);
+        }
+
+        renderer.end_scene(scene, &mut render_ctx);
+        renderer.finalise(render_ctx);
 
         Ok(())
     }

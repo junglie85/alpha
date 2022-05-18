@@ -180,7 +180,7 @@ impl Application for Editor {
                 .show(ui, |ui| {
                     ui.label("Color");
                     if ui
-                        .color_edit_button_rgba_unmultiplied(&mut game.rects[0].color)
+                        .color_edit_button_rgba_unmultiplied(&mut game.rects[0].color.to_array())
                         .changed()
                     {
                         self.state.changed_since_last_save = true;
@@ -206,11 +206,11 @@ impl Application for Editor {
                     ui.add(slider);
 
                     ui.label("Size");
-                    let slider = Slider::new(&mut game.rects[0].scale[0], 0.0..=2000.0)
+                    let slider = Slider::new(&mut game.rects[0].size.x, 0.0..=2000.0)
                         .text("width")
                         .clamp_to_range(false);
                     ui.add(slider);
-                    let slider = Slider::new(&mut game.rects[0].scale[1], 0.0..=2000.0)
+                    let slider = Slider::new(&mut game.rects[0].size.y, 0.0..=2000.0)
                         .text("height")
                         .clamp_to_range(false);
                     ui.add(slider);
@@ -293,8 +293,8 @@ impl Application for Editor {
         if self.state.save_requested {
             let x = game.rects[0].position[0];
             let y = game.rects[0].position[1];
-            let width = game.rects[0].scale[0];
-            let height = game.rects[0].scale[1];
+            let width = game.rects[0].size[0];
+            let height = game.rects[0].size[1];
             let rotation = game.rects[0].rotation_degrees;
             let transform = format!("{} {} {} {} {}", x, y, width, height, rotation);
 
