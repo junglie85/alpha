@@ -3,9 +3,10 @@ use crate::editor::EditorState;
 use crate::engine::Application;
 use crate::game::Game;
 use egui::epaint::ClippedShape;
-use egui::{CtxRef, Slider, TextureId};
+use egui::{CtxRef, Slider, TextureId, Ui};
 use egui_winit_platform::Platform;
 use glam::Vec4;
+use hecs::Entity;
 use std::time::Instant;
 use std::{fs, path};
 use winit::dpi::PhysicalSize;
@@ -25,7 +26,7 @@ pub(crate) fn update(
 
     let egui_ctx = egui_platform.context();
 
-    egui::TopBottomPanel::top("toolbar").show(&egui_ctx, |ui| {
+    egui::TopBottomPanel::top("Menu Bar").show(&egui_ctx, |ui| {
         egui::menu::bar(ui, |ui| {
             let save = ui.button("💾 Save").clicked();
             if save {
@@ -39,15 +40,37 @@ pub(crate) fn update(
         });
     });
 
-    egui::SidePanel::right("right pane").show(&egui_ctx, |ui| {
-        let entity = game
-            .world
-            .query::<&Tag>()
-            .iter()
-            .find(|(_entity, tag)| tag.0 == *"Changeable")
-            .map(|(entity, _tag)| entity);
+    egui::SidePanel::left("Scene Hierarchy").show(&egui_ctx, |ui| {
+        struct EntityDetails<'a> {
+            id: Entity,
+            tag: &'a String,
+        }
 
-        if let Some(entity) = entity {
+        impl<'a> EntityDetails<'a> {
+            fn ui(&mut self, ui: &mut Ui, state: &mut EditorState) {
+                if ui.button(self.tag).clicked() {
+                    state.active_entity = Some(self.id);
+                }
+            }
+        }
+
+        for entity_ref in game.world.iter() {
+            let entity = entity_ref.entity();
+            let tag = game
+                .world
+                .get::<Tag>(entity)
+                .expect("All entities should have tags");
+
+            let mut entity_details = EntityDetails {
+                id: entity,
+                tag: &tag.0,
+            };
+            entity_details.ui(ui, state);
+        }
+    });
+
+    egui::SidePanel::right("Properties Panel").show(&egui_ctx, |ui| {
+        if let Some(entity) = state.active_entity {
             if let Ok(mut tag) = game.world.get_mut::<Tag>(entity) {
                 egui::CollapsingHeader::new("Tag")
                     .default_open(true)
