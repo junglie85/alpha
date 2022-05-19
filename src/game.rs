@@ -1,9 +1,11 @@
+use crate::components::{Shape, Tag, Transform};
 use crate::editor::Pause;
 use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
 use crate::renderer::camera::Camera;
 use crate::renderer::{rect::Rect, Renderer};
 use glam::{Vec2, Vec4};
+use hecs::World;
 use log::info;
 use std::str::FromStr;
 use std::{fs, path};
@@ -12,20 +14,21 @@ use winit::window::Window;
 
 pub struct Game {
     paused: bool,
-    pub rects: Vec<Rect>,
     pub camera: Camera,
+    pub world: World,
 }
 
 impl Game {
     pub fn new(_window: &Window, renderer: &Renderer) -> Self {
         let paused = false;
-        let rects = Vec::new();
         let camera = Camera::new(renderer.width, renderer.height);
+
+        let world = World::new();
 
         Self {
             paused,
-            rects,
             camera,
+            world,
         }
     }
 }
@@ -40,41 +43,46 @@ impl CreateApplication for Game {
 
 impl Application for Game {
     fn on_start(&mut self, config_filename: Option<&str>) {
-        let filename = match config_filename {
-            Some(filename) => filename,
-            None => "alpha_game.ini",
-        };
+        let filename = config_filename.unwrap_or("alpha_game.ini");
 
         let path = path::Path::new(filename);
         let file = fs::read_to_string(path);
 
         if let Ok(config) = file {
-            let state: Vec<&str> = config.split('\n').collect();
+            let entities: Vec<&str> = config
+                .trim()
+                .split("---\n")
+                .filter(|e| !e.is_empty())
+                .collect();
 
-            let transform: Vec<&str> = state[0].split_whitespace().collect();
-            let x = f32::from_str(transform[0]).unwrap();
-            let y = f32::from_str(transform[1]).unwrap();
-            let width = f32::from_str(transform[2]).unwrap();
-            let height = f32::from_str(transform[3]).unwrap();
-            let rotation = f32::from_str(transform[4]).unwrap();
+            for entity in entities {
+                let components: Vec<&str> = entity.split('\n').collect();
 
-            let colors: Vec<&str> = state[1].split_whitespace().collect();
-            let r = f32::from_str(colors[0]).unwrap();
-            let g = f32::from_str(colors[1]).unwrap();
-            let b = f32::from_str(colors[2]).unwrap();
-            let a = f32::from_str(colors[3]).unwrap();
-            let color = Vec4::new(r, g, b, a);
+                let tag = components[0].to_string();
 
-            let rect = Rect::new(Vec2::new(x, y), rotation, Vec2::new(width, height), color);
-            self.rects.push(rect);
+                let transform: Vec<&str> = components[1].split_whitespace().collect();
+                let x = f32::from_str(transform[0]).unwrap();
+                let y = f32::from_str(transform[1]).unwrap();
+                let width = f32::from_str(transform[2]).unwrap();
+                let height = f32::from_str(transform[3]).unwrap();
+                let rotation = f32::from_str(transform[4]).unwrap();
 
-            let rect = Rect::new(
-                Vec2::new(400.0, 400.0),
-                0.0,
-                Vec2::new(100.0, 100.0),
-                Vec4::new(1.0, 0.0, 0.0, 1.0),
-            );
-            self.rects.push(rect);
+                let colors: Vec<&str> = components[2].split_whitespace().collect();
+                let r = f32::from_str(colors[0]).unwrap();
+                let g = f32::from_str(colors[1]).unwrap();
+                let b = f32::from_str(colors[2]).unwrap();
+                let a = f32::from_str(colors[3]).unwrap();
+                let color = Vec4::new(r, g, b, a);
+
+                let tag = Tag(tag);
+                let transform = Transform {
+                    position: Vec2::new(x, y),
+                    size: Vec2::new(width, height),
+                    rotation,
+                };
+                let shape = Shape { color };
+                self.world.spawn((tag, transform, shape));
+            }
         }
     }
 
@@ -89,15 +97,7 @@ impl Application for Game {
     }
 
     fn on_update(&mut self, _window: &Window, renderer: &mut Renderer) -> Result<(), Error> {
-        let mut render_ctx = renderer.prepare();
-        let mut scene = renderer.begin_scene(&self.camera);
-
-        for rect in &self.rects {
-            renderer.draw_rect(&mut scene, rect);
-        }
-
-        renderer.end_scene(scene, &mut render_ctx);
-        renderer.finalise(render_ctx);
+        system_render(&self.world, &self.camera, renderer);
 
         Ok(())
     }
@@ -111,4 +111,22 @@ impl Pause for Game {
     fn pause(&mut self, paused: bool) {
         self.paused = paused;
     }
+}
+
+fn system_render(world: &World, camera: &Camera, renderer: &mut Renderer) {
+    let mut render_ctx = renderer.prepare();
+    let mut scene = renderer.begin_scene(camera); // TODO: Add camera as a resource in the World.
+
+    for (_id, (transform, shape)) in world.query::<(&Transform, &Shape)>().iter() {
+        let rect = Rect::new(
+            transform.position,
+            transform.rotation,
+            transform.size,
+            shape.color,
+        );
+        renderer.draw_rect(&mut scene, &rect);
+    }
+
+    renderer.end_scene(scene, &mut render_ctx);
+    renderer.finalise(render_ctx);
 }
