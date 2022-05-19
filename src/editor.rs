@@ -4,6 +4,7 @@ use crate::game::Game;
 use crate::renderer::Renderer;
 use egui::FontDefinitions;
 use egui_winit_platform::Platform;
+use hecs::Entity;
 use log::info;
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -24,6 +25,7 @@ pub(crate) struct EditorState {
     pub save_requested: bool,
     pub build_requested: bool,
     pub window_resized: bool,
+    pub active_entity: Option<Entity>,
 }
 
 pub struct Editor {

@@ -3,6 +3,7 @@
 This is a 2D game engine and editor developed in Rust to help me learn more about the language and about game development.
 
 NEXT:
-- Scene hierarchy panel to select entities.
-- Select entities using mouse in scene viewer.
+- Select entities using mouse in scene viewer (picking).
+- Highlight selected entity.
+- Highlight entity on mouse hover.
 - Save and load editor state (and game config) using HECS serde traits.
