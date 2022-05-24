@@ -2,14 +2,11 @@ use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
 use crate::game::Game;
 use crate::renderer::Renderer;
-use egui::FontDefinitions;
-use egui_winit_platform::Platform;
 use hecs::Entity;
 use log::info;
-use std::cell::RefCell;
-use std::sync::Arc;
-use std::time::Instant;
+use wgpu::TextureViewDescriptor;
 use winit::event::{Event, WindowEvent};
+use winit::event_loop::EventLoop;
 use winit::window::Window;
 
 mod gui;
@@ -34,29 +31,24 @@ pub struct Editor {
 
     state: EditorState,
 
-    egui_start_time: Instant,
-    egui_platform: Platform,
+    egui_ctx: egui::Context,
+    egui_platform: egui_winit::State,
     game_scene_texture: wgpu::Texture,
-    game_scene_texture_view: Arc<RefCell<wgpu::TextureView>>, // TODO: Does this need to be an Arc with interior mutability in the Renderer?
 }
 
 impl CreateApplication for Editor {
     type App = Self;
 
-    fn create(window: &Window, renderer: &Renderer) -> Result<Self::App, Error> {
-        let size = window.inner_size();
-        let egui_platform =
-            egui_winit_platform::Platform::new(egui_winit_platform::PlatformDescriptor {
-                physical_width: size.width as u32,
-                physical_height: size.height as u32,
-                scale_factor: window.scale_factor(),
-                font_definitions: FontDefinitions::default(),
-                style: Default::default(),
-            });
+    fn create(
+        window: &Window,
+        event_loop: &EventLoop<()>,
+        renderer: &Renderer,
+    ) -> Result<Self::App, Error> {
+        let egui_winit_state = egui_winit::State::new(event_loop);
 
-        let start_time = Instant::now();
+        let egui_ctx = egui::Context::default();
 
-        let game = Game::create(window, renderer)?;
+        let game = Game::create(window, event_loop, renderer)?;
 
         let mut state = EditorState::default();
         state.editor_title = String::from("Alpha Editor");
@@ -79,18 +71,14 @@ impl CreateApplication for Editor {
             label: None,
         };
         let game_scene_texture = renderer.device.create_texture(&game_scene_texture_desc);
-        let game_scene_texture_view = Arc::new(RefCell::new(
-            game_scene_texture.create_view(&Default::default()),
-        ));
 
         let editor = Editor {
             game: Some(game),
             frames: 0,
             state,
-            egui_platform,
-            egui_start_time: start_time,
+            egui_platform: egui_winit_state,
+            egui_ctx,
             game_scene_texture,
-            game_scene_texture_view,
         };
 
         Ok(editor)
@@ -106,7 +94,11 @@ impl Application for Editor {
     }
 
     fn on_event(&mut self, event: &Event<()>) {
-        self.egui_platform.handle_event(event);
+        if let Event::WindowEvent { event, .. } = event {
+            // TODO: deal with event handled (returns false).
+            self.egui_platform.on_event(&self.egui_ctx, event);
+        }
+
         if let Event::WindowEvent {
             event: WindowEvent::Resized(_size),
             ..
@@ -132,19 +124,24 @@ impl Application for Editor {
             _ => false,
         };
 
-        renderer.render_to_texture(Some(self.game_scene_texture_view.clone()));
+        let game_scene_texture_view = self.game_scene_texture.create_view(&Default::default());
+        renderer.render_to_texture(Some(game_scene_texture_view));
 
         game.pause(!play_game);
         game.on_update(window, renderer)
             .expect("Handle error - game crash should not crash editor"); // TODO
         renderer.render_to_texture(None);
 
-        let game_scene_texture_id =
-            renderer.egui_texture_from_wgpu_texture(&self.game_scene_texture);
+        let tv = self
+            .game_scene_texture
+            .create_view(&TextureViewDescriptor::default());
+        let game_scene_texture_id = renderer.egui_texture_from_wgpu_texture(&tv);
 
-        let (egui_ctx, egui_paint_commands) = gui::update(
+        self.egui_platform
+            .set_pixels_per_point(window.scale_factor() as f32);
+        let egui_output = gui::update(
+            &self.egui_ctx,
             &mut self.egui_platform,
-            self.egui_start_time,
             game_scene_texture_id,
             game,
             &mut self.state,
@@ -152,8 +149,14 @@ impl Application for Editor {
         );
 
         let render_ctx = renderer.prepare();
-        renderer.begin_egui(&render_ctx, egui_ctx, egui_paint_commands);
+        renderer.begin_egui(&render_ctx, &self.egui_ctx, &egui_output);
         renderer.finalise(render_ctx);
+
+        self.egui_platform.handle_platform_output(
+            window,
+            &self.egui_ctx,
+            egui_output.platform_output,
+        );
 
         self.frames += 1;
 

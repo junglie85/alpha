@@ -6,9 +6,9 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 bytemuck = { version = "1.4", features = ["derive"] }
-egui = "0.16"
-egui_wgpu_backend = "0.16"
-egui_winit_platform = "0.13"
+egui = "0.18"
+egui-wgpu = "0.18"
+egui-winit = "0.18"
 flexi_logger = "0.22"
 glam = "0.20"
 hecs = "0.7"
@@ -18,3 +18,8 @@ thiserror = "1.0"
 wgpu = "0.12"
 winit = "0.26"
 winit_input_helper = "0.12"
+
+[patch.crates-io]
+egui = { git = "https://github.com/emilk/egui.git", branch = "master" }
+egui-wgpu = { git = "https://github.com/emilk/egui.git", branch = "master" }
+egui-winit = { git = "https://github.com/emilk/egui.git", branch = "master" }

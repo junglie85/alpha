@@ -2,29 +2,24 @@ use crate::components::{Shape, Tag, Transform};
 use crate::editor::EditorState;
 use crate::engine::Application;
 use crate::game::Game;
-use egui::epaint::ClippedShape;
-use egui::{CtxRef, Slider, TextureId, Ui};
-use egui_winit_platform::Platform;
+use egui::{FullOutput, Slider, TextureId, Ui};
 use glam::Vec4;
 use hecs::Entity;
-use std::time::Instant;
 use std::{fs, path};
 use winit::dpi::PhysicalSize;
 use winit::event::{Event, WindowEvent};
 use winit::window::Window;
 
 pub(crate) fn update(
-    egui_platform: &mut Platform,
-    egui_start_time: Instant,
+    egui_ctx: &egui::Context,
+    egui_platform: &mut egui_winit::State,
     game_scene_texture_id: TextureId,
     game: &mut Game,
     state: &mut EditorState,
     window: &Window,
-) -> (CtxRef, Vec<ClippedShape>) {
-    egui_platform.update_time(egui_start_time.elapsed().as_secs_f64());
-    egui_platform.begin_frame();
-
-    let egui_ctx = egui_platform.context();
+) -> FullOutput {
+    let egu_input = egui_platform.take_egui_input(window);
+    egui_ctx.begin_frame(egu_input);
 
     egui::TopBottomPanel::top("Menu Bar").show(&egui_ctx, |ui| {
         egui::menu::bar(ui, |ui| {
@@ -40,7 +35,7 @@ pub(crate) fn update(
         });
     });
 
-    egui::SidePanel::left("Scene Hierarchy").show(&egui_ctx, |ui| {
+    egui::SidePanel::left("Scene Hierarchy").show(egui_ctx, |ui| {
         struct EntityDetails<'a> {
             id: Entity,
             tag: &'a String,
@@ -69,7 +64,7 @@ pub(crate) fn update(
         }
     });
 
-    egui::SidePanel::right("Properties Panel").show(&egui_ctx, |ui| {
+    egui::SidePanel::right("Properties Panel").show(egui_ctx, |ui| {
         if let Some(entity) = state.active_entity {
             if let Ok(mut tag) = game.world.get_mut::<Tag>(entity) {
                 egui::CollapsingHeader::new("Tag")
@@ -140,7 +135,7 @@ pub(crate) fn update(
         };
     });
 
-    egui::CentralPanel::default().show(&egui_ctx, |ui| {
+    egui::CentralPanel::default().show(egui_ctx, |ui| {
         let size = ui.available_size_before_wrap();
         ui.image(game_scene_texture_id, size);
 
@@ -204,7 +199,6 @@ pub(crate) fn update(
         fs::copy(copy_src, copy_dst).expect("Unable to copy alpha_game.alpha to alpha_game.ini");
     }
 
-    let (_, paint_commands) = egui_platform.end_frame(Some(window));
-
-    (egui_ctx, paint_commands)
+    egui_ctx.end_frame()
+    // egui_platform.handle_platform_output(window, &egui_ctx, egui_ctx.output().deref());
 }
