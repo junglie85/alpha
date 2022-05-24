@@ -9,7 +9,11 @@ use winit_input_helper::WinitInputHelper;
 pub trait CreateApplication {
     type App: Application;
 
-    fn create(window: &Window, renderer: &Renderer) -> Result<Self::App, Error>;
+    fn create(
+        window: &Window,
+        event_loop: &EventLoop<()>,
+        renderer: &Renderer,
+    ) -> Result<Self::App, Error>;
 }
 
 pub trait Application {
@@ -43,7 +47,7 @@ where
 
         let renderer = renderer::init(&window)?;
 
-        let application = App::create(&window, &renderer)?;
+        let application = App::create(&window, &event_loop, &renderer)?;
 
         let engine = Engine {
             application: Some(application),

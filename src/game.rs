@@ -10,6 +10,7 @@ use log::info;
 use std::str::FromStr;
 use std::{fs, path};
 use winit::event::{Event, WindowEvent};
+use winit::event_loop::EventLoop;
 use winit::window::Window;
 
 pub struct Game {
@@ -36,7 +37,11 @@ impl Game {
 impl CreateApplication for Game {
     type App = Self;
 
-    fn create(window: &Window, renderer: &Renderer) -> Result<Self::App, Error> {
+    fn create(
+        window: &Window,
+        _event_loop: &EventLoop<()>,
+        renderer: &Renderer,
+    ) -> Result<Self::App, Error> {
         Ok(Game::new(window, renderer))
     }
 }

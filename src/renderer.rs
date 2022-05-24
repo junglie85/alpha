@@ -2,17 +2,15 @@ use crate::error::Error;
 use crate::renderer::camera::Camera;
 use crate::renderer::rect::{Rect, RectPipeline, Vertex, ViewProjectionUniform};
 use bytemuck::cast_slice;
-use egui::epaint::ClippedShape;
-use egui::CtxRef;
-use egui_wgpu_backend::ScreenDescriptor;
+use egui::FullOutput;
+use egui_wgpu::renderer::ScreenDescriptor;
 use glam::{Mat4, Vec4, Vec4Swizzles};
 use log::info;
-use std::cell::RefCell;
 use std::sync::Arc;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::{
-    Adapter, BufferAddress, BufferUsages, CommandEncoder, Device, Instance, Queue, Surface,
-    SurfaceConfiguration, SurfaceTexture, Texture, TextureView,
+    Adapter, BufferAddress, BufferUsages, CommandEncoder, Device, FilterMode, Instance, Queue,
+    Surface, SurfaceConfiguration, SurfaceTexture, TextureView,
 };
 use winit::window::Window;
 
@@ -36,10 +34,10 @@ pub struct Renderer {
     pub width: u32,
     pub height: u32,
     pub scale_factor: f64,
-    pub output_texture: Option<Arc<RefCell<TextureView>>>,
+    pub output_texture: Option<TextureView>,
 
     rect_pipeline: RectPipeline,
-    egui_render_pass: egui_wgpu_backend::RenderPass,
+    egui_render_pass: egui_wgpu::renderer::RenderPass,
 }
 
 impl Renderer {
@@ -87,7 +85,7 @@ impl Renderer {
         let rect_pipeline = RectPipeline::init(&device, &surface_config);
 
         let egui_render_pass =
-            egui_wgpu_backend::RenderPass::new(&device, surface_config.format, 1);
+            egui_wgpu::renderer::RenderPass::new(&device, surface_config.format, 1);
 
         Self {
             _instance: instance,
@@ -117,7 +115,7 @@ impl Renderer {
             let view = output
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
-            (Some(output), Arc::new(RefCell::new(view)))
+            (Some(output), view)
         };
 
         RenderContext { output, view }
@@ -207,7 +205,6 @@ impl Renderer {
         );
 
         {
-            let view = &ctx.view.as_ref().borrow();
             let mut render_pass = scene
                 .encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -215,7 +212,7 @@ impl Renderer {
                     color_attachments: &[
                         // This is what [[location(0)]] in the fragment shader targets
                         wgpu::RenderPassColorAttachment {
-                            view,
+                            view: &ctx.view,
                             resolve_target: None,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -287,27 +284,26 @@ impl Renderer {
         scene.index_offset += 4;
     }
 
-    pub fn render_to_texture(&mut self, texture: Option<Arc<RefCell<TextureView>>>) {
+    pub fn render_to_texture(&mut self, texture: Option<TextureView>) {
         self.output_texture = texture;
     }
 
-    pub fn egui_texture_from_wgpu_texture(&mut self, texture: &Texture) -> egui::TextureId {
-        egui_wgpu_backend::RenderPass::egui_texture_from_wgpu_texture(
+    pub fn egui_texture_from_wgpu_texture(&mut self, texture: &TextureView) -> egui::TextureId {
+        egui_wgpu::renderer::RenderPass::register_native_texture(
             &mut self.egui_render_pass,
             &self.device,
             texture,
-            wgpu::FilterMode::Linear,
+            FilterMode::Linear,
         )
     }
 
     pub fn begin_egui(
         &mut self,
         ctx: &RenderContext,
-        egui_ctx: CtxRef,
-        paint_commands: Vec<ClippedShape>,
+        egui_ctx: &egui::Context,
+        egui_output: &FullOutput,
     ) {
-        let paint_jobs = egui_ctx.tessellate(paint_commands);
-        let font_image = egui_ctx.font_image();
+        let paint_jobs = egui_ctx.tessellate(egui_output.shapes.clone());
 
         let mut encoder = self
             .device
@@ -317,15 +313,19 @@ impl Renderer {
 
         {
             let screen_descriptor = ScreenDescriptor {
-                physical_width: self.surface_config.width,
-                physical_height: self.surface_config.height,
-                scale_factor: self.scale_factor as f32,
+                size_in_pixels: [self.surface_config.width, self.surface_config.height],
+                pixels_per_point: self.scale_factor as f32,
             };
 
-            self.egui_render_pass
-                .update_texture(&self.device, &self.queue, &font_image);
-            self.egui_render_pass
-                .update_user_textures(&self.device, &self.queue);
+            for (texture_id, image_delta) in egui_output.textures_delta.set.iter() {
+                self.egui_render_pass.update_texture(
+                    &self.device,
+                    &self.queue,
+                    *texture_id,
+                    image_delta,
+                );
+            }
+
             self.egui_render_pass.update_buffers(
                 &self.device,
                 &self.queue,
@@ -333,15 +333,13 @@ impl Renderer {
                 &screen_descriptor,
             );
 
-            self.egui_render_pass
-                .execute(
-                    &mut encoder,
-                    &ctx.view.borrow(),
-                    &paint_jobs,
-                    &screen_descriptor,
-                    Some(wgpu::Color::BLACK),
-                )
-                .unwrap();
+            self.egui_render_pass.execute(
+                &mut encoder,
+                &ctx.view,
+                &paint_jobs,
+                &screen_descriptor,
+                Some(wgpu::Color::BLACK),
+            );
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -350,7 +348,7 @@ impl Renderer {
 
 pub struct RenderContext {
     pub output: Option<SurfaceTexture>,
-    pub view: Arc<RefCell<TextureView>>,
+    pub view: TextureView,
 }
 
 pub struct Scene {
