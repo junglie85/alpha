@@ -2,14 +2,17 @@ use crate::components::{Shape, Tag, Transform};
 use crate::editor::EditorState;
 use crate::engine::Application;
 use crate::game::Game;
-use egui::{FullOutput, Slider, TextureId, Ui};
-use glam::Vec4;
+use egui::{FullOutput, Image, Pos2, Sense, Slider, TextureId, Ui, Widget};
+use glam::{Vec2, Vec4};
 use hecs::Entity;
 use std::{fs, path};
+use wgpu::{Device, Texture};
 use winit::dpi::PhysicalSize;
 use winit::event::{Event, WindowEvent};
 use winit::window::Window;
+use winit_input_helper::WinitInputHelper;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn update(
     egui_ctx: &egui::Context,
     egui_platform: &mut egui_winit::State,
@@ -17,6 +20,9 @@ pub(crate) fn update(
     game: &mut Game,
     state: &mut EditorState,
     window: &Window,
+    input: &WinitInputHelper,
+    game_scene_texture: &mut Texture,
+    device: &Device,
 ) -> FullOutput {
     let egu_input = egui_platform.take_egui_input(window);
     egui_ctx.begin_frame(egu_input);
@@ -135,9 +141,71 @@ pub(crate) fn update(
         };
     });
 
+    // TODO: Make the game scene texture the same size as the ui image.
+    // TODO: Show mouse coords.
+
     egui::CentralPanel::default().show(egui_ctx, |ui| {
+        egui::TopBottomPanel::bottom("Scene Info Bar").show_inside(ui, |ui| {
+            egui::menu::bar(ui, |ui| {
+                egui::SidePanel::right("").show_inside(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if let Some((mouse_x, mouse_y)) = input.mouse() {
+                            ui.label(format!(
+                                "Window: ({:.2}, {:.2}),",
+                                state.mouse_window_pos.x, state.mouse_window_pos.y
+                            ));
+                            ui.label(format!(
+                                "Viewport: ({:.2}, {:.2}),",
+                                state.mouse_viewport_pos.x, state.mouse_viewport_pos.y
+                            ));
+                            ui.label(format!(
+                                "World: ({:.2}, {:.2})",
+                                state.mouse_world_pos.x, state.mouse_world_pos.y
+                            ));
+                        } else {
+                            ui.label("Window: (-, -)");
+                            ui.label("Viewport: (-, -)");
+                            ui.label("World: (-, -)");
+                        }
+                    });
+                });
+            });
+        });
+
         let size = ui.available_size_before_wrap();
-        ui.image(game_scene_texture_id, size);
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let scene = Image::new(game_scene_texture_id, size)
+            .sense(Sense::hover())
+            .ui(ui);
+
+        if let Some(Pos2 {
+            x: mouse_x,
+            y: mouse_y,
+        }) = scene.hover_pos()
+        {
+            state.mouse_window_pos.x = mouse_x * window.scale_factor() as f32;
+            state.mouse_window_pos.y = mouse_y * window.scale_factor() as f32;
+
+            state.mouse_viewport_pos.x =
+                state.mouse_window_pos.x - scene.rect.min.x * window.scale_factor() as f32; //viewport_x;
+            state.mouse_viewport_pos.y =
+                state.mouse_window_pos.y - scene.rect.min.y * window.scale_factor() as f32; //viewport_y;
+
+            let viewport_width = size.x * window.scale_factor() as f32;
+            let viewport_height = size.y * window.scale_factor() as f32;
+            let viewport_dims = Vec2::new(viewport_width, viewport_height);
+            let mut ndc = ((state.mouse_viewport_pos / viewport_dims) * 2.0) - 1.0;
+            ndc.y *= -1.0; // TODO: Why is this even necessary?
+            let ndc = Vec4::from((ndc, 1.0, 1.0));
+
+            let inverse_projection = game.camera.get_projection().inverse();
+            let inverse_view = game.camera.get_view().inverse();
+
+            let world = inverse_view * inverse_projection * ndc;
+            state.mouse_world_pos.x = world.x;
+            state.mouse_world_pos.y = world.y;
+        }
 
         if state.window_resized {
             let width = (size.x * window.scale_factor() as f32) as u32;
@@ -147,6 +215,23 @@ pub(crate) fn update(
                 event: WindowEvent::Resized(PhysicalSize::new(width, height)),
             };
             game.on_event(&resize_event);
+
+            let game_scene_texture_desc = wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: size.x as u32,
+                    height: size.y as u32,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                usage: wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                label: None,
+            };
+            *game_scene_texture = device.create_texture(&game_scene_texture_desc);
         }
     });
 
