@@ -12,6 +12,7 @@ use std::{fs, path};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::Window;
+use winit_input_helper::WinitInputHelper;
 
 pub struct Game {
     paused: bool,
@@ -101,7 +102,33 @@ impl Application for Game {
         }
     }
 
-    fn on_update(&mut self, _window: &Window, renderer: &mut Renderer) -> Result<(), Error> {
+    fn on_update(
+        &mut self,
+        window: &Window,
+        renderer: &mut Renderer,
+        input: &WinitInputHelper,
+    ) -> Result<(), Error> {
+        if let Some((mouse_x, mouse_y)) = input.mouse() {
+            // state.mouse_window_pos.x = mouse_x * window.scale_factor() as f32;
+            // state.mouse_window_pos.y = mouse_y * window.scale_factor() as f32;
+
+            let mouse_viewport_pos = Vec2::new(mouse_x, mouse_y);
+            dbg!(mouse_x);
+
+            let viewport_width = window.inner_size().width as f32;
+            let viewport_height = window.inner_size().height as f32;
+            let viewport_dims = Vec2::new(viewport_width, viewport_height);
+            let mut ndc = ((mouse_viewport_pos / viewport_dims) * 2.0) - 1.0;
+            ndc.y *= -1.0; // TODO: Why is this even necessary?
+            let ndc = Vec4::from((ndc, 1.0, 1.0));
+
+            let inverse_projection = self.camera.get_projection().inverse();
+            let inverse_view = self.camera.get_view().inverse();
+
+            let world = inverse_view * inverse_projection * ndc;
+            dbg!(world);
+        }
+
         system_render(&self.world, &self.camera, renderer);
 
         Ok(())

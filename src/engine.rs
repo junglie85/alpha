@@ -21,7 +21,12 @@ pub trait Application {
 
     fn on_event(&mut self, event: &Event<()>);
 
-    fn on_update(&mut self, window: &Window, renderer: &mut Renderer) -> Result<(), Error>;
+    fn on_update(
+        &mut self,
+        window: &Window,
+        renderer: &mut Renderer,
+        input: &WinitInputHelper,
+    ) -> Result<(), Error>;
 
     fn on_stop(&mut self);
 }
@@ -89,7 +94,7 @@ where
                     return;
                 }
 
-                app.on_update(&window, &mut renderer)
+                app.on_update(&window, &mut renderer, &input)
                     .expect("Handle error - exit or recover?"); // TODO
             }
 

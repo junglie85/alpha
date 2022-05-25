@@ -2,12 +2,14 @@ use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
 use crate::game::Game;
 use crate::renderer::Renderer;
+use glam::Vec2;
 use hecs::Entity;
 use log::info;
 use wgpu::TextureViewDescriptor;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::Window;
+use winit_input_helper::WinitInputHelper;
 
 mod gui;
 
@@ -23,6 +25,9 @@ pub(crate) struct EditorState {
     pub build_requested: bool,
     pub window_resized: bool,
     pub active_entity: Option<Entity>,
+    pub mouse_window_pos: Vec2,
+    pub mouse_viewport_pos: Vec2,
+    pub mouse_world_pos: Vec2,
 }
 
 pub struct Editor {
@@ -108,7 +113,12 @@ impl Application for Editor {
         }
     }
 
-    fn on_update(&mut self, window: &Window, renderer: &mut Renderer) -> Result<(), Error> {
+    fn on_update(
+        &mut self,
+        window: &Window,
+        renderer: &mut Renderer,
+        input: &WinitInputHelper,
+    ) -> Result<(), Error> {
         let game = self.game.as_mut().unwrap();
 
         let play_game = match self.frames {
@@ -128,7 +138,7 @@ impl Application for Editor {
         renderer.render_to_texture(Some(game_scene_texture_view));
 
         game.pause(!play_game);
-        game.on_update(window, renderer)
+        game.on_update(window, renderer, input)
             .expect("Handle error - game crash should not crash editor"); // TODO
         renderer.render_to_texture(None);
 
@@ -146,6 +156,9 @@ impl Application for Editor {
             game,
             &mut self.state,
             window,
+            input,
+            &mut self.game_scene_texture,
+            &renderer.device,
         );
 
         let render_ctx = renderer.prepare();
