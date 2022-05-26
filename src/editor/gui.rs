@@ -1,9 +1,9 @@
-use crate::components::{Shape, Tag, Transform};
+use crate::components::{compute_inverse_transformation_matrix, Shape, Tag, Transform};
 use crate::editor::EditorState;
 use crate::engine::Application;
 use crate::game::Game;
-use egui::{FullOutput, Image, Pos2, Sense, Slider, TextureId, Ui, Widget};
-use glam::{Vec2, Vec4};
+use egui::{FullOutput, Image, PointerButton, Pos2, Sense, Slider, TextureId, Ui, Widget};
+use glam::{Vec2, Vec4, Vec4Swizzles};
 use hecs::Entity;
 use std::{fs, path};
 use wgpu::{Device, Texture};
@@ -141,15 +141,12 @@ pub(crate) fn update(
         };
     });
 
-    // TODO: Make the game scene texture the same size as the ui image.
-    // TODO: Show mouse coords.
-
     egui::CentralPanel::default().show(egui_ctx, |ui| {
         egui::TopBottomPanel::bottom("Scene Info Bar").show_inside(ui, |ui| {
             egui::menu::bar(ui, |ui| {
                 egui::SidePanel::right("").show_inside(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if let Some((mouse_x, mouse_y)) = input.mouse() {
+                        if input.mouse().is_some() {
                             ui.label(format!(
                                 "Window: ({:.2}, {:.2}),",
                                 state.mouse_window_pos.x, state.mouse_window_pos.y
@@ -177,6 +174,7 @@ pub(crate) fn update(
         ui.spacing_mut().item_spacing.y = 0.0;
         let scene = Image::new(game_scene_texture_id, size)
             .sense(Sense::hover())
+            .sense(Sense::click())
             .ui(ui);
 
         if let Some(Pos2 {
@@ -205,6 +203,37 @@ pub(crate) fn update(
             let world = inverse_view * inverse_projection * ndc;
             state.mouse_world_pos.x = world.x;
             state.mouse_world_pos.y = world.y;
+        }
+
+        if scene.clicked_by(PointerButton::Primary) {
+            for (id, (transform,)) in game.world.query::<(&Transform,)>().iter() {
+                let inverse = compute_inverse_transformation_matrix(transform);
+                let test_point = (inverse * Vec4::from((state.mouse_world_pos, 0.0, 1.0))).xy();
+
+                if test_point.x >= 0.0
+                    && test_point.x <= 1.0
+                    && test_point.y >= 0.0
+                    && test_point.y <= 1.0
+                {
+                    state.active_entity = Some(id);
+                }
+            }
+        }
+
+        if scene.clicked_by(PointerButton::Secondary) {
+            let tag = Tag(String::from("Entity"));
+
+            let transform = Transform {
+                position: state.mouse_world_pos,
+                size: Vec2::new(100.0, 100.0),
+                rotation: 0.0,
+            };
+
+            let shape = Shape {
+                color: Vec4::new(1.0, 0.0, 0.0, 1.0),
+            };
+
+            game.world.spawn((tag, transform, shape));
         }
 
         if state.window_resized {

@@ -1,5 +1,6 @@
+use crate::components::{compute_transformation_matrix, Transform};
 use bytemuck::{Pod, Zeroable};
-use glam::{Mat4, Vec2, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec4};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, BlendState, Buffer, BufferAddress, BufferBindingType,
@@ -39,16 +40,13 @@ impl Rect {
     }
 
     pub fn scale_rotation_translation(&self) -> Mat4 {
-        let mut transform =
-            Mat4::from_translation(Vec3::new(self.position.x, self.position.y, 0.0));
-
-        transform *= Mat4::from_translation(Vec3::new(0.5 * self.size.x, 0.5 * self.size.y, 0.0));
-        transform *= Mat4::from_rotation_z(-self.rotation_degrees.to_radians());
-        transform *= Mat4::from_translation(Vec3::new(-0.5 * self.size.x, -0.5 * self.size.y, 0.0));
-
-        transform *= Mat4::from_scale(Vec3::new(self.size.x, self.size.y, 1.0));
-
-        transform
+        // TODO: All transformations in relation to origin.
+        let t = Transform {
+            position: self.position,
+            size: self.size,
+            rotation: self.rotation_degrees,
+        };
+        compute_transformation_matrix(&t)
     }
 }
 

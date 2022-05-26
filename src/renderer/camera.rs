@@ -40,6 +40,12 @@ impl Camera {
             glam::Vec3::Y,
         );
 
+        // let view = glam::Mat4::look_at_lh(
+        //     glam::Vec3::new(0.0, 0.0, -1.0),
+        //     glam::Vec3::new(0.0, 0.0, 0.0),
+        //     glam::Vec3::Y,
+        // );
+
         view
     }
 
