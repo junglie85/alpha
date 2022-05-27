@@ -1,4 +1,4 @@
-use crate::components::{compute_inverse_transformation_matrix, Shape, Tag, Transform};
+use crate::components::{compute_inverse_transformation_matrix, Script, Shape, Tag, Transform};
 use crate::editor::EditorState;
 use crate::engine::Application;
 use crate::game::Game;
@@ -137,6 +137,12 @@ pub(crate) fn update(
                             state.changed_since_last_save = true;
                         }
                     });
+            }
+
+            if let Ok(mut script) = game.world.get_mut::<Script>(entity) {
+                if ui.text_edit_multiline(&mut script.wasm).changed() {
+                    state.changed_since_last_save = true;
+                }
             }
         };
     });
@@ -296,7 +302,16 @@ pub(crate) fn update(
             let a = shape.color.w;
             let color = format!("{} {} {} {}", r, g, b, a);
 
-            editor_state = format!("{}{}\n{}\n{}\n---\n", editor_state, tag, transform, color);
+            let wasm = if let Ok(script) = game.world.get::<Script>(entity) {
+                format!("\n{}", script.wasm)
+            } else {
+                String::from("")
+            };
+
+            editor_state = format!(
+                "{}{}\n{}\n{}{}\n---\n",
+                editor_state, tag, transform, color, wasm
+            );
         }
 
         let path = path::Path::new("alpha_game.alpha");

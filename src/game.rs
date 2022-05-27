@@ -1,4 +1,4 @@
-use crate::components::{Shape, Tag, Transform};
+use crate::components::{Script, Shape, Tag, Transform};
 use crate::editor::Pause;
 use crate::engine::{Application, CreateApplication};
 use crate::error::Error;
@@ -9,6 +9,9 @@ use hecs::World;
 use log::info;
 use std::str::FromStr;
 use std::{fs, path};
+use wasmer::{
+    imports, wat2wasm, Cranelift, Instance, Module, Store, Universal, UniversalEngine, Value,
+};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::window::Window;
@@ -16,6 +19,7 @@ use winit_input_helper::WinitInputHelper;
 
 pub struct Game {
     paused: bool,
+    system_wasmer: SystemWasmer,
     pub camera: Camera,
     pub world: World,
 }
@@ -23,12 +27,16 @@ pub struct Game {
 impl Game {
     pub fn new(_window: &Window, renderer: &Renderer) -> Self {
         let paused = false;
+
+        let system_wasmer = SystemWasmer::new();
+
         let camera = Camera::new(renderer.width, renderer.height);
 
         let world = World::new();
 
         Self {
             paused,
+            system_wasmer,
             camera,
             world,
         }
@@ -87,7 +95,15 @@ impl Application for Game {
                     rotation,
                 };
                 let shape = Shape { color };
-                self.world.spawn((tag, transform, shape));
+
+                // TODO: Really need to do better parsing of this stuff now...
+                if components.len() < 5 {
+                    self.world.spawn((tag, transform, shape));
+                } else {
+                    let wasm = components[3].trim().to_string();
+                    let script = Script { wasm };
+                    self.world.spawn((tag, transform, shape, script));
+                }
             }
         }
     }
@@ -108,6 +124,10 @@ impl Application for Game {
         renderer: &mut Renderer,
         _input: &WinitInputHelper,
     ) -> Result<(), Error> {
+        if !self.paused {
+            self.system_wasmer.run(&self.world)?;
+        }
+
         system_render(&self.world, &self.camera, renderer);
 
         Ok(())
@@ -121,6 +141,47 @@ impl Application for Game {
 impl Pause for Game {
     fn pause(&mut self, paused: bool) {
         self.paused = paused;
+    }
+}
+
+struct SystemWasmer {
+    _engine: UniversalEngine,
+    store: Store,
+}
+
+impl SystemWasmer {
+    fn new() -> Self {
+        let engine = Universal::new(Cranelift::default()).engine();
+        let store = Store::new(&engine);
+
+        Self {
+            _engine: engine,
+            store,
+        }
+    }
+
+    fn run(&self, world: &World) -> Result<(), Error> {
+        for (_id, (script,)) in world.query::<(&Script,)>().iter() {
+            let wasm_bytes = wat2wasm(script.wasm.as_bytes()).map_err(|e| Error::WASM(e.into()))?;
+
+            let module = Module::new(&self.store, wasm_bytes).map_err(|e| Error::WASM(e.into()))?;
+
+            let import_object = imports! {};
+            let instance =
+                Instance::new(&module, &import_object).map_err(|e| Error::WASM(e.into()))?;
+
+            let add_one = instance
+                .exports
+                .get_function("add_one")
+                .map_err(|e| Error::WASM(e.into()))?;
+            let result = add_one
+                .call(&[Value::I32(42)])
+                .map_err(|e| Error::WASM(e.into()))?;
+
+            info!("WASM result: {:?}", result[0]);
+        }
+
+        Ok(())
     }
 }
 
