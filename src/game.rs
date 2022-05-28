@@ -162,7 +162,8 @@ impl SystemWasmer {
 
     fn run(&self, world: &World) -> Result<(), Error> {
         for (_id, (script,)) in world.query::<(&Script,)>().iter() {
-            let wasm_bytes = wat2wasm(script.wasm.as_bytes()).map_err(|e| Error::WASM(e.into()))?;
+            // let wasm_bytes = wat2wasm(script.wasm.as_bytes()).map_err(|e| Error::WASM(e.into()))?;
+            let wasm_bytes = include_bytes!("../examples/sandbox/scripts/build/release.wasm");
 
             let module = Module::new(&self.store, wasm_bytes).map_err(|e| Error::WASM(e.into()))?;
 
