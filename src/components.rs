@@ -2,7 +2,7 @@ use glam::{Mat4, Vec2, Vec3, Vec4};
 
 #[derive(Default)]
 pub struct Script {
-    pub wasm: String,
+    pub filepath: Option<String>,
 }
 
 #[derive(Debug)]

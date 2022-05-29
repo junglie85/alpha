@@ -100,8 +100,10 @@ impl Application for Game {
                 if components.len() < 5 {
                     self.world.spawn((tag, transform, shape));
                 } else {
-                    let wasm = components[3].trim().to_string();
-                    let script = Script { wasm };
+                    let filepath = components[3].trim().to_string();
+                    let script = Script {
+                        filepath: Some(filepath),
+                    };
                     self.world.spawn((tag, transform, shape, script));
                 }
             }
@@ -162,8 +164,8 @@ impl SystemWasmer {
 
     fn run(&self, world: &World) -> Result<(), Error> {
         for (_id, (script,)) in world.query::<(&Script,)>().iter() {
-            // let wasm_bytes = wat2wasm(script.wasm.as_bytes()).map_err(|e| Error::WASM(e.into()))?;
-            let wasm_bytes = include_bytes!("../examples/sandbox/scripts/build/release.wasm");
+            let wasm_bytes = std::fs::read(script.filepath.as_ref().unwrap())
+                .map_err(|e| Error::WASM(e.into()))?;
 
             let module = Module::new(&self.store, wasm_bytes).map_err(|e| Error::WASM(e.into()))?;
 

@@ -12,6 +12,19 @@ use winit::event::{Event, WindowEvent};
 use winit::window::Window;
 use winit_input_helper::WinitInputHelper;
 
+struct EntityDetails<'a> {
+    id: Entity,
+    tag: &'a String,
+}
+
+impl<'a> EntityDetails<'a> {
+    fn ui(&mut self, ui: &mut Ui, state: &mut EditorState) {
+        if ui.button(self.tag).clicked() {
+            state.active_entity = Some(self.id);
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update(
     egui_ctx: &egui::Context,
@@ -42,19 +55,6 @@ pub(crate) fn update(
     });
 
     egui::SidePanel::left("Scene Hierarchy").show(egui_ctx, |ui| {
-        struct EntityDetails<'a> {
-            id: Entity,
-            tag: &'a String,
-        }
-
-        impl<'a> EntityDetails<'a> {
-            fn ui(&mut self, ui: &mut Ui, state: &mut EditorState) {
-                if ui.button(self.tag).clicked() {
-                    state.active_entity = Some(self.id);
-                }
-            }
-        }
-
         for entity_ref in game.world.iter() {
             let entity = entity_ref.entity();
             let tag = game
@@ -140,9 +140,18 @@ pub(crate) fn update(
             }
 
             if let Ok(mut script) = game.world.get_mut::<Script>(entity) {
-                if ui.text_edit_multiline(&mut script.wasm).changed() {
-                    state.changed_since_last_save = true;
-                }
+                egui::CollapsingHeader::new("Script")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        ui.label("File");
+                        ui.label(script.filepath.as_ref().unwrap());
+
+                        if ui.button("Choose file…").clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                script.filepath = Some(path.display().to_string());
+                            }
+                        }
+                    });
             }
         };
     });
@@ -303,7 +312,7 @@ pub(crate) fn update(
             let color = format!("{} {} {} {}", r, g, b, a);
 
             let wasm = if let Ok(script) = game.world.get::<Script>(entity) {
-                format!("\n{}", script.wasm)
+                format!("\n{}", script.filepath.as_ref().unwrap())
             } else {
                 String::from("")
             };
@@ -329,5 +338,4 @@ pub(crate) fn update(
     }
 
     egui_ctx.end_frame()
-    // egui_platform.handle_platform_output(window, &egui_ctx, egui_ctx.output().deref());
 }
